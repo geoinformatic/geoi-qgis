@@ -1,0 +1,30 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build zip · publish GitHub release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify the tag matches metadata.txt version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          meta="$(sed -n 's/^version=//p' geoi/metadata.txt)"
+          if [ "$tag" != "$meta" ]; then
+            echo "::error::Tag v$tag does not match metadata.txt version=$meta"; exit 1
+          fi
+          echo "Tag matches metadata version $meta"
+      - name: Build installable zip
+        run: bash scripts/package.sh
+      - name: Publish GitHub release with the plugin zip
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/geoi.zip
+          generate_release_notes: true
