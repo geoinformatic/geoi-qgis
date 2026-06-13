@@ -124,9 +124,6 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 # unit tests (pure modules — no QGIS needed)
 python3 -m unittest discover -s tests -p 'test_*.py'
 
-# editing round-trip: headless QGIS <-> a live platform (needs php + qgis python)
-bash tests/e2e/run.sh
-
 # build the installable zip
 scripts/package.sh        # → dist/geoi.zip
 ```
@@ -135,11 +132,9 @@ The pure modules (`geoi_client.py`, `convert.py`, `auth.py`, `content_tree.py`)
 import nothing from QGIS and carry the testable logic; QGIS is imported lazily
 inside the GUI / adapter code so the package imports cleanly in CI.
 
-`tests/e2e/` seeds a public, editable feature service, serves the platform over
-real HTTP (`router.php` mirrors the production rewrites), then drives a headless
-QGIS to add the layer **in the service's own CRS**, move a feature, commit, and
-verify the edit persisted on the server. It runs in CI across QGIS 3.28 / 3.34 /
-latest.
+CI also imports the plugin under QGIS 3.28 / 3.34 / latest (Qt5 and Qt6),
+verifies the PyQGIS API the plugin relies on, and exercises the publish/save
+conversion against a real in-memory layer.
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and our
 [Code of Conduct](CODE_OF_CONDUCT.md).

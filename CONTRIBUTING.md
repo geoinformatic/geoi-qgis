@@ -25,9 +25,6 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 # lint
 flake8 --max-line-length=100 --extend-ignore=E203,W503 geoi tests
 
-# editing round-trip — headless QGIS <-> a live mock platform (needs php + qgis python)
-bash tests/e2e/run.sh
-
 # build the installable zip
 scripts/package.sh        # -> dist/geoi.zip
 ```
