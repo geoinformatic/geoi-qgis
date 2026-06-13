@@ -24,7 +24,7 @@ jobs:
       - name: Build installable zip
         run: bash scripts/package.sh
       - name: Publish GitHub release with the plugin zip
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/geoi.zip
           generate_release_notes: true
