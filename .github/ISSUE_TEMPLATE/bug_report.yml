@@ -1,0 +1,36 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: qgis-version
+    attributes:
+      label: QGIS version
+      placeholder: e.g. 3.34.5 / 4.0
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: e.g. 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. Windows 11 / macOS 14 / Ubuntu 24.04
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log Messages (geoi channel)
+      description: Paste any relevant output from the QGIS "Log Messages" panel, geoi channel. Remove anything sensitive.
+      render: shell

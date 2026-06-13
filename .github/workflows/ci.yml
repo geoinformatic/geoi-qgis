@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    name: lint · unit tests · build zip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install flake8
+      - name: Byte-compile every module
+        run: python -m py_compile geoi/*.py geoi/gui/*.py tests/*.py
+      - name: Lint
+        run: flake8 --max-line-length=100 --extend-ignore=E203,W503 geoi tests
+      - name: Forbid Qt5-only idioms (must run on QGIS 3 AND 4)
+        run: |
+          if grep -rn '\.exec_(' geoi; then
+            echo '::error::Use .exec() — PyQt6 (QGIS 4) removed .exec_()'; exit 1
+          fi
+          echo 'No Qt5-only idioms found.'
+      - name: Unit tests (pure modules)
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Build installable zip
+        run: bash scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: geoi-qgis-plugin
+          path: dist/geoi.zip
+
+  qgis-import:
+    name: import under QGIS ${{ matrix.tag }}
+    runs-on: ubuntu-latest
+    # Headless for every step in this job (QGIS would otherwise try the xcb
+    # display plugin and abort — there is no X server in CI).
+    env:
+      QT_QPA_PLATFORM: offscreen
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ['release-3_28', 'release-3_34', 'latest']
+    container:
+      image: qgis/qgis:${{ matrix.tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Import the plugin under QGIS (Qt5/Qt6 parity smoke test)
+        run: |
+          python3 -c "import sys; sys.path.insert(0, '.'); \
+            import geoi.plugin, geoi.gui.browser_panel, geoi.gui.dialogs, \
+                   geoi.tasks, geoi.settings, geoi.auth, geoi.convert, geoi.geoi_client; \
+            print('plugin imports OK under', __import__('qgis.core', fromlist=['Qgis']).Qgis.QGIS_VERSION)"
+      - name: Verify the PyQGIS API the plugin calls actually exists
+        run: |
+          python3 -c "
+          from qgis.core import QgsAuthManager, QgsAuthMethodConfig, QgsVectorLayer, QgsProject
+          from qgis.gui import QgsMessageBar
+          for m in ['storeAuthenticationConfig','updateAuthenticationConfig','loadAuthenticationConfig',
+                    'removeAuthenticationConfig','configIds','storeAuthSetting','authSetting','removeAuthSetting']:
+              assert hasattr(QgsAuthManager, m), 'QgsAuthManager missing ' + m
+          for m in ['setName','setMethod','setConfig','id']:
+              assert hasattr(QgsAuthMethodConfig, m), 'QgsAuthMethodConfig missing ' + m
+          for m in ['addMapLayer','mapLayers','mapLayer','instance']:
+              assert hasattr(QgsProject, m), 'QgsProject missing ' + m
+          for m in ['geometryType','renderer','fields','getFeatures','isSpatial','isValid']:
+              assert hasattr(QgsVectorLayer, m), 'QgsVectorLayer missing ' + m
+          assert hasattr(QgsMessageBar, 'pushInfo'), 'QgsMessageBar missing pushInfo'
+          print('PyQGIS API the plugin calls is present')
+          "
+      - name: Runtime test — convert a real layer (publish/save path)
+        run: |
+          python3 -c "
+          import sys; sys.path.insert(0, '.')
+          from qgis.core import (QgsApplication, QgsVectorLayer, QgsFeature,
+                                 QgsGeometry, QgsPointXY)
+          app = QgsApplication([], False); app.initQgis()
+          from geoi import convert
+          vl = QgsVectorLayer('Point?crs=EPSG:4326&field=name:string&field=n:double', 't', 'memory')
+          pr = vl.dataProvider()
+          f = QgsFeature(vl.fields())
+          f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(1, 2)))
+          f.setAttributes(['a', 3.0])
+          pr.addFeature(f); vl.updateExtents()
+          ld, feats = convert.qgis_layer_to_geoi(vl)
+          assert ld['type'] == 'Point', ld
+          assert ld['schema'][0]['name'] == 'name'
+          assert feats[0]['properties']['_layerId'] == ld['id']
+          assert feats[0]['geometry']['type'] == 'Point', feats[0]
+          fc = convert.build_feature_collection([ld], feats, project_name='t')
+          assert fc['type'] == 'FeatureCollection' and fc['features']
+          app.exitQgis()
+          print('convert runtime OK')
+          "
+      - name: Unit tests under QGIS python
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Editing round-trip (headless QGIS <-> live platform)
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq php-cli php-sqlite3 php-mbstring curl >/dev/null
+          bash tests/e2e/run.sh
