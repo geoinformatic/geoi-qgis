@@ -1,0 +1,20 @@
+[general]
+name=geoi
+qgisMinimumVersion=3.22
+qgisMaximumVersion=4.99
+description=Sign in to your geoi platform with Google, browse your content, add your services as layers, and publish or save QGIS projects back to geoi.
+about=The geoi plugin connects QGIS to a geoi platform (geoi.de or your own server). Click "Sign in with Google" — it reuses your platform's own web Google sign-in in your system browser, with zero configuration — then browse your services and projects and double-click a service to add it as a native ArcGIS Feature Service layer. Publish the current QGIS layers as a new geoi Feature Service, or save them to the platform as a geoi project ("geoi package"). The session token is stored encrypted in the QGIS authentication database. Works on QGIS 3 and 4. Dependency-free: Python standard library plus the QGIS API only.
+version=1.0.0
+author=geoinformatic
+email=mail@geoi.de
+tags=geoi,feature service,arcgis,web,cloud,publish,authentication,google,wms,wfs
+homepage=https://geoi.de
+tracker=https://github.com/geoinformatic/geoi-qgis/issues
+repository=https://github.com/geoinformatic/geoi-qgis
+category=Web
+icon=icon.svg
+experimental=False
+deprecated=False
+hasProcessingProvider=no
+license=Apache-2.0
+changelog=1.0.0 — First stable release. Connect QGIS to a geoi platform: zero-config Google sign-in, browse your own content by folder, add services as native ArcGIS Feature Service layers (editable round-trip), and publish or save projects with symbology and labels carried over — with a per-layer summary before you send. Proven across QGIS 3.28 / 3.34 / latest (Qt5 and Qt6). 0.7.0 — Publish & Save dialogs show a per-layer summary (name, symbology type, labels, feature count). 0.6.0 — Saving a project carries each layer's symbology (single / categorized / graduated), labels, opacity, outline and names. 0.5.1 — Load on QGIS 4 (qgisMaximumVersion=4.99). 0.5.0 — Headless-QGIS editing round-trip in CI; group sharing; copy service URL; polished palette-aware panel. 0.4.0 — Edits stick (add service in its own CRS); repaint + zoom-to-extent; rename inline. 0.3.0 — Visibility/editability on publish; folder hierarchy; drag-and-drop. 0.2.x — Reliable publish/save + diagnostics. 0.2.0 — Zero-config Google sign-in via the platform's own web client. 0.1.0 — First release.

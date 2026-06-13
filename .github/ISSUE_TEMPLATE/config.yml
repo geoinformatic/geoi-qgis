@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: geoi platform
+    url: https://geoi.de
+    about: Questions about the geoi platform itself (accounts, services, the web app).
+  - name: Security report
+    url: https://github.com/geoinformatic/geoi-qgis/security/policy
+    about: Please report security issues privately (see SECURITY.md), not as a public issue.
