@@ -73,6 +73,67 @@ nothing for the platform owner or the user to set up. The only optional setting
 is the **Platform URL** (defaults to `https://geoi.de`) if you run your own geoi
 server.
 
+## Usage
+
+The complete walkthrough — from installing the plugin to every action it offers.
+No configuration is required (see [Configuration](#configuration)).
+
+**Before you start.** You need QGIS **3.22 LTR or newer** (it also runs on QGIS
+4.x) and a **geoi account** — on [geoi.de](https://geoi.de) or your own geoi
+server. You sign in with the same Google account you use for the geoi web app;
+there is nothing else to set up.
+
+1. **Open the panel.** After [installing](#install), click the **geoi** button on
+   the toolbar (or open **Web ▸ geoi ▸ geoi**). The dockable **geoi** panel opens
+   on the right.
+
+2. **Sign in.** Click **Sign in with Google**. Your system browser opens the geoi
+   platform's own Google sign-in — pick your account and approve. The panel then
+   shows your content and the button changes to **Sign out**. The 30-day session
+   token is stored **encrypted** in the QGIS authentication database, so you stay
+   signed in between sessions.
+   *Running a self-hosted server?* Click the **Server settings** button (next to
+   *Sign in*) and set your **Platform URL** before signing in (it defaults to
+   `https://geoi.de`).
+
+3. **Browse your content.** The tree lists **your** services and projects,
+   organised by your folder hierarchy, with each item's visibility shown. Expand
+   folders to drill in; click **Refresh** to reload from the platform.
+
+4. **Add a service to the map.** **Double-click** a service (or select it and
+   click **Add to map**). It is added through QGIS's native **ArcGIS Feature
+   Service** provider, in the service's own CRS, and the map zooms to it. Features
+   are queried server-side — nothing is bulk-downloaded — and private services
+   authenticate automatically.
+
+5. **Edit and save back.** If the service is **editable**, toggle editing in
+   QGIS, change geometry or attributes, and use **Save Layer Edits** — your
+   changes are written back to geoi.
+
+6. **Publish the current map as a service.** Click **Publish project…**, pick the
+   layers, name the service, and choose its **visibility** (private, a group, or
+   public) and whether features are **editable**. A per-layer summary (name,
+   symbology, labels, feature count) is shown before you send.
+
+7. **Save the project to geoi.** Click **Save to geoi…** to store the current
+   project as a geoi project ("geoi package"). Your **symbology** (single /
+   categorized / graduated), **labels**, opacity, outline and layer names are
+   carried over, so it re-opens looking the same in the geoi web app and in this
+   plugin.
+
+8. **Organise, rename, share.** Drag an item onto a folder to move it; press
+   **F2** (or click an already-selected row) to rename inline; **New folder**
+   creates one. Right-click any item for **Share…** (visibility and groups),
+   **Move to folder…**, **Copy service URL** (for ArcGIS / Field Maps), **Open
+   geoi web app**, or **Delete**.
+
+9. **Sign out.** Click **Sign out** to remove the stored token from the QGIS
+   authentication database.
+
+For how sign-in works under the hood and the exact REST calls, see
+[How sign-in works](#how-sign-in-works-zero-config-handoff) and
+[How it talks to geoi](#how-it-talks-to-geoi-no-surprises) below.
+
 ## How sign-in works (zero-config handoff)
 
 The plugin is **not** a Google OAuth client. It opens the platform's hosted
