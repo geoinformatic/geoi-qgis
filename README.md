@@ -2,7 +2,7 @@
 
 <p align="center">
   Connect QGIS to a <a href="https://geoi.de">geoi</a> platform —
-  <strong>sign in</strong> (Google, Apple or Microsoft), <strong>browse</strong>
+  <strong>sign in</strong> (Google, Apple, Microsoft or ArcGIS), <strong>browse</strong>
   your services and projects, <strong>add</strong> your services as native
   layers, <strong>publish</strong> or <strong>save</strong> QGIS projects, and
   <strong>publish raster as cloud-native tiles</strong> back to geoi.
@@ -27,7 +27,7 @@ tasks), and works across QGIS versions (**3.22 LTR → latest, Qt5 and Qt6**).
 - **Sign in — one click, zero configuration.** The plugin reuses your geoi
   platform's **own** web sign-in: click *Sign in* and your system browser opens
   the same sign-in page the web app shows, offering whichever providers your geoi
-  admin enabled (**Google, Apple, Microsoft** — read live from the server,
+  admin enabled (**Google, Apple, Microsoft, ArcGIS** — read live from the server,
   nothing hardcoded); pick one and you're in. No OAuth client to create, no
   settings. The 30-day session token is stored **encrypted** in the QGIS
   authentication database (`QgsAuthManager`), never in plain text.
@@ -96,7 +96,7 @@ No configuration is required (see [Configuration](#configuration)).
 **Before you start.** You need QGIS **3.22 LTR or newer** (it also runs on QGIS
 4.x) and a **geoi account** — on [geoi.de](https://geoi.de) or your own geoi
 server. You sign in with the same account you use for the geoi web app
-(whichever of Google, Apple or Microsoft your geoi admin enabled); there is
+(whichever of Google, Apple, Microsoft or ArcGIS your geoi admin enabled); there is
 nothing else to set up.
 
 1. **Open the panel.** After [installing](#install), click the **geoi** button on
@@ -168,13 +168,13 @@ For how sign-in works under the hood and the exact REST calls, see
 The plugin is **not** an OAuth client. It opens the platform's hosted handoff
 page `…/desktop-signin.html` in your system browser. Because that page is served
 from the geoi origin, it offers whichever providers your geoi admin enabled —
-**Google, Apple or Microsoft** (read live from the server; nothing is hardcoded)
-— and reuses the **same** credential exchange the web app uses. Google and Apple
-keep the secure loopback handoff; Microsoft uses the platform's server-side flow.
-The page then hands the resulting session token back to the plugin over a
-**loopback** redirect (`http://127.0.0.1:<port>`) — and only a loopback; a
-`state` nonce ties the response to the request. On locked-down machines the page
-also shows a one-time code you can paste into QGIS instead.
+**Google, Apple, Microsoft or ArcGIS** (read live from the server; nothing is hardcoded)
+— and reuses the **same** credential exchange the web app uses. The page then
+hands the resulting session token back to the plugin over a **loopback** redirect
+(`http://127.0.0.1:<port>`) — and only a loopback; a `state` nonce ties the
+response to the request. The handoff **never strands you**: if the automatic
+redirect can't reach QGIS, the sign-in page offers a **Return to QGIS** retry and
+a one-time **code you can paste** into QGIS instead.
 
 > This plugin talks to a geoi server but ships **no** server code. The handoff
 > page and the REST API live on your geoi platform.
@@ -185,7 +185,7 @@ All calls go to `<platform>/platform/…`, exactly like the geoi web app:
 
 | Action | Request |
 |---|---|
-| Sign in | browser → `…/desktop-signin.html` (reuses the web sign-in: Google / Apple / Microsoft) → 30-day bearer via loopback |
+| Sign in | browser → `…/desktop-signin.html` (reuses the web sign-in: Google / Apple / Microsoft / ArcGIS) → 30-day bearer via loopback |
 | Browse | `GET /hub/services`, `/hub/projects`, `/hub/folders`, `/hub/groups` |
 | Add service | `…/rest/services/<name>/FeatureServer` via the ArcGIS provider |
 | Publish | `POST /hub/services` (multipart GeoJSON), then visibility / editable + group share |
@@ -201,7 +201,7 @@ gate, so it won't silently change under the plugin.
 ## Security
 
 - Sign-in uses the **system browser** (not an embedded webview); each provider's
-  sign-in happens on its real domain (Google / Apple / Microsoft) via the
+  sign-in happens on its real domain (Google / Apple / Microsoft / ArcGIS) via the
   platform's existing web flow.
 - The handoff page **only** redirects to a validated `http://127.0.0.1:<port>`
   loopback — never to a free-form URL — and a `state` nonce prevents any other

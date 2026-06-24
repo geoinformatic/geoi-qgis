@@ -3,7 +3,10 @@
 ## 1.1.0 — cloud raster tiling, multi-provider sign-in, AGPL
 
 This release brings the work matured across the `0.8.0`–`0.19.0` development
-series to the stable line on top of `1.0.0`.
+series to the stable line on top of `1.0.0`. It is the same complete, hardened
+plugin published upstream as **geoi `1.0.0`** ("first stable release"); it ships
+here as `1.1.0` because `1.0.0` is already on the QGIS Plugin Repository, so
+existing users receive it as an update.
 
 - **Publish raster as cloud-native tiles.** A new *Publish as Tile Service
   (raster)* flow tiles your **raster layers** or a **folder of GeoTIFFs** into a
@@ -17,10 +20,13 @@ series to the stable line on top of `1.0.0`.
   box — a native `pmtiles` CLI is used automatically if present (faster). Needs
   **GDAL ≥ 3.8** (ships with QGIS). Uncovered areas of a reprojected raster are
   **transparent** (no black borders).
-- **Sign in with Google, Apple or Microsoft.** The sign-in page offers whichever
-  providers your geoi admin enabled, read **live** from the platform (nothing is
-  hardcoded). Google and Apple keep the secure loopback handoff; Microsoft uses
-  the platform's server-side flow.
+- **Sign in with Google, Apple, Microsoft or ArcGIS.** The sign-in page offers
+  whichever providers your geoi admin enabled, read **live** from the platform
+  (nothing is hardcoded). The loopback handoff never strands you: a **paste-code
+  fallback** and a **Return-to-QGIS retry** on the sign-in page recover the
+  session if the automatic redirect can't reach QGIS.
+- **Storage quotas surfaced.** Your per-user / group storage quota is shown in
+  the plugin.
 - **Storage overview.** The account row shows your total storage usage and
   percentage at a glance, with a per-kind breakdown on hover. Loaded fail-soft,
   so it never slows sign-in.

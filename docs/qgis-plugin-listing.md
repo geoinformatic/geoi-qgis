@@ -19,7 +19,7 @@ ZIP and update the fields below.
 
 > The geoi plugin connects QGIS to a geoi platform (geoi.de or your own server).
 > Click "Sign in" — it reuses your platform's own web sign-in in your system
-> browser (whichever of Google, Apple or Microsoft your admin enabled), with
+> browser (whichever of Google, Apple, Microsoft or ArcGIS your admin enabled), with
 > zero configuration — then browse your services and projects and double-click a
 > service to add it as a native ArcGIS Feature Service layer. Publish the current
 > QGIS layers as a new geoi Feature Service, save them to the platform as a geoi
@@ -72,13 +72,15 @@ field; the licence travels in `metadata.txt` (`license=AGPL-3.0`) and `LICENSE`.
   uploaded straight to object storage via a presigned URL (your bearer is never
   sent off-site), with progress + cancel. The PMTiles writer is bundled, so it
   works out of the box.
-- **Sign in with Google, Apple or Microsoft** — whichever your geoi admin
-  enabled, read live from the platform.
+- **Sign in with Google, Apple, Microsoft or ArcGIS** — whichever your geoi admin
+  enabled, read live from the platform; the loopback handoff never strands you
+  (paste-code fallback + a Return-to-QGIS retry).
 - **Storage overview** in the account row.
 - **Manage published tile services** — add as WMTS, copy XYZ/WMTS/PMTiles URLs,
   rename, change visibility, move, share, delete; a clearer Feature Services /
   Web Maps / Tile Services tree.
-- **Calmer startup** (no forced sign-in) and a robust Google loopback sign-in.
+- **Storage quotas** (per-user / group) surfaced in the plugin.
+- **Calmer startup** (no forced sign-in) and a robust loopback sign-in.
 - **Relicensed under AGPL-3.0.**
 
 ## Upload checklist
