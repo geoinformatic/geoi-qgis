@@ -83,13 +83,43 @@ field; the licence travels in `metadata.txt` (`license=AGPL-3.0`) and `LICENSE`.
 - **Calmer startup** (no forced sign-in) and a robust loopback sign-in.
 - **Relicensed under AGPL-3.0.**
 
-## Upload checklist
+## Upload checklist (manual web form)
 
-1. Download `geoi.zip` from the **`v1.1.0` GitHub Release** (auto-published when
-   the PR merges to `main`; top-level `geoi/` folder with `metadata.txt` at its
-   root). Or build it locally with `scripts/package.sh`.
-2. *Edit plugin → geoi* → drag in the new ZIP; QGIS reads version `1.1.0`,
-   `experimental=False` and the new `about`/`tags` from `metadata.txt`.
+1. Download `geoi.zip` from the latest **GitHub Release** (`v1.1.1`+, auto-built
+   on merge to `main`; a single top-level `geoi/` folder with `metadata.txt` and
+   `LICENSE` at its root). Or build it locally with `scripts/package.sh`.
+2. *Edit plugin → geoi* (or the version-add page) → drag in the new ZIP; QGIS
+   reads the version, `experimental=False` and the `about`/`tags` from
+   `metadata.txt`.
 3. Paste the **Description**, **About** and **Tags** above if the form does not
    auto-fill them from the ZIP.
 4. Confirm **Experimental** and **Deprecated** are unchecked, then save.
+
+> **The package must contain a `LICENSE` file at the root of the `geoi/` folder**
+> — the repository validator rejects the upload otherwise ("The form contains
+> errors"). As of `1.1.1` the build includes `geoi/LICENSE`, so this is handled.
+
+## Automated upload (no web form)
+
+plugins.qgis.org can be published to from CI. This repo ships
+`.github/workflows/publish-qgis-org.yml`, which runs `qgis-plugin-ci` on every
+published GitHub Release and uploads the plugin automatically. To enable it:
+
+1. Add repo **secrets** `OSGEO_USERNAME` / `OSGEO_PASSWORD` (an OSGeo account
+   that is a maintainer of the `geoi` plugin). The workflow skips cleanly until
+   the secret exists, so it never breaks CI.
+2. From then on, each release auto-publishes; you can also trigger it by hand
+   (Actions → *Publish to plugins.qgis.org* → Run workflow → tag `v1.1.1`).
+
+To run it locally instead:
+
+```bash
+pip install qgis-plugin-ci
+qgis-plugin-ci release v1.1.1 \
+  --osgeo-username "$OSGEO_USERNAME" --osgeo-password "$OSGEO_PASSWORD"
+```
+
+Alternatively, plugins.qgis.org also offers a per-plugin **API token** (create at
+`https://plugins.qgis.org/plugins/geoi/tokens/`) used as a `Bearer` token against
+`POST https://plugins.qgis.org/plugins/api/geoi/version/add/` — handy for a quick
+`curl` upload without storing your account password.

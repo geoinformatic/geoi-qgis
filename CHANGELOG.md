@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.1 — packaging fix for the QGIS Plugin Repository
+- **Ship the `LICENSE` inside the plugin package.** The QGIS Plugin Repository
+  validator requires a `LICENSE` file at the root of the plugin folder; the
+  release zip now includes `geoi/LICENSE` (the AGPL-3.0 text). This unblocks
+  uploading to plugins.qgis.org. No functional or code changes.
+- **Optional auto-publish to plugins.qgis.org.** A new
+  `.github/workflows/publish-qgis-org.yml` uploads each published GitHub Release
+  to plugins.qgis.org via `qgis-plugin-ci` — opt-in, gated on an `OSGEO_PASSWORD`
+  repo secret (skips cleanly without it).
+
 ## 1.1.0 — cloud raster tiling, multi-provider sign-in, AGPL
 
 This release brings the work matured across the `0.8.0`–`0.19.0` development

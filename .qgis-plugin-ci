@@ -1,0 +1,5 @@
+# qgis-plugin-ci configuration (https://opengisch.github.io/qgis-plugin-ci/)
+# The installable plugin lives in the geoi/ subfolder (metadata.txt at its root).
+plugin_path: geoi
+github_organization_slug: geoinformatic
+project_slug: geoi-qgis

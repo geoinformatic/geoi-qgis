@@ -1,0 +1,72 @@
+name: Publish to plugins.qgis.org
+
+# Uploads the released plugin to the official QGIS Plugin Repository
+# (plugins.qgis.org) automatically when a GitHub Release is published.
+#
+# This is OPT-IN: it only runs if the repo has an `OSGEO_PASSWORD` secret. Add
+# your OSGeo account (https://www.osgeo.org/community/getting-started-osgeo/)
+# credentials as repo secrets `OSGEO_USERNAME` / `OSGEO_PASSWORD` (the account
+# must be a maintainer of the `geoi` plugin). Without the secret the job logs a
+# notice and exits cleanly, so it never breaks CI.
+#
+# You can also run it by hand: Actions → "Publish to plugins.qgis.org" → Run
+# workflow, passing the tag (e.g. v1.1.1).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (e.g. v1.1.1)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: upload to plugins.qgis.org
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide whether credentials are configured
+        id: gate
+        env:
+          OSGEO_PASSWORD: ${{ secrets.OSGEO_PASSWORD }}
+        run: |
+          if [ -z "$OSGEO_PASSWORD" ]; then
+            echo "::notice::No OSGEO_PASSWORD secret set — skipping plugins.qgis.org upload."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve tag
+        id: tag
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          tag="${{ github.event.inputs.tag }}"
+          [ -n "$tag" ] || tag="${GITHUB_REF_NAME}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Publishing $tag"
+
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.go == 'true'
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        if: steps.gate.outputs.go == 'true'
+        with:
+          python-version: '3.11'
+
+      - name: Release to plugins.qgis.org
+        if: steps.gate.outputs.go == 'true'
+        env:
+          OSGEO_USERNAME: ${{ secrets.OSGEO_USERNAME }}
+          OSGEO_PASSWORD: ${{ secrets.OSGEO_PASSWORD }}
+        run: |
+          python -m pip install --upgrade qgis-plugin-ci
+          qgis-plugin-ci release "${{ steps.tag.outputs.tag }}" \
+            --osgeo-username "$OSGEO_USERNAME" \
+            --osgeo-password "$OSGEO_PASSWORD"
