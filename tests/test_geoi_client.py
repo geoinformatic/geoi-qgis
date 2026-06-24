@@ -103,6 +103,64 @@ class RequestTest(unittest.TestCase):
         self.assertNotIn("Authorization", dict(req.header_items()))
         self.assertTrue(req.full_url.endswith("/platform/auth/config"))
 
+    def test_auth_providers_parses_endpoint(self):
+        # The SAME /auth/providers source the website reads (#585). The plugin
+        # never hardcodes the list; it just relays what the server enabled.
+        c = client([(json.dumps({
+            "success": True,
+            "providers": [
+                {"id": "google", "label": "Google", "icon": "google", "clientId": "g"},
+                {"id": "microsoft", "label": "Microsoft", "icon": "microsoft"},
+            ],
+        }), 200)])
+        providers = c.auth_providers()
+        self.assertEqual([p["id"] for p in providers], ["google", "microsoft"])
+        req = c._opener.requests[0]
+        # public endpoint: no bearer, hits /auth/providers
+        self.assertNotIn("Authorization", dict(req.header_items()))
+        self.assertTrue(req.full_url.endswith("/platform/auth/providers"))
+
+    def test_auth_providers_parses_arcgis_entry(self):
+        # ArcGIS (#685) surfaces through the SAME /auth/providers list with no
+        # plugin change: the client relays whatever the server enabled, so an
+        # `arcgis` entry is parsed and passed through untouched (the hosted
+        # desktop-signin page renders the button + runs the server loopback).
+        c = client([(json.dumps({
+            "success": True,
+            "providers": [
+                {"id": "google", "label": "Google", "icon": "google", "clientId": "g"},
+                {"id": "arcgis", "label": "ArcGIS", "icon": "arcgis"},
+            ],
+        }), 200)])
+        providers = c.auth_providers()
+        self.assertEqual([p["id"] for p in providers], ["google", "arcgis"])
+        arcgis = providers[1]
+        self.assertEqual(arcgis["label"], "ArcGIS")
+        self.assertEqual(arcgis["icon"], "arcgis")
+        req = c._opener.requests[0]
+        self.assertNotIn("Authorization", dict(req.header_items()))
+        self.assertTrue(req.full_url.endswith("/platform/auth/providers"))
+
+    def test_build_signin_url_is_provider_agnostic(self):
+        # The loopback URL carries only port + state — no per-provider data —
+        # so adding ArcGIS server-side needs no change to build_signin_url.
+        from geoi import auth
+        url = auth.build_signin_url("https://www.geoi.de", 50123, "nonce")
+        self.assertTrue(url.startswith("https://www.geoi.de/desktop-signin.html?"))
+        self.assertIn("port=50123", url)
+        self.assertIn("state=nonce", url)
+        self.assertNotIn("provider", url)
+
+    def test_auth_providers_empty_disables_sign_in(self):
+        # No enabled provider -> [] -> the plugin offers no "Sign in".
+        c = client([(json.dumps({"success": True, "providers": []}), 200)])
+        self.assertEqual(c.auth_providers(), [])
+
+    def test_auth_providers_missing_or_malformed_is_empty(self):
+        for body in ({"success": True}, {"providers": "nope"}):
+            c = client([(json.dumps(body), 200)])
+            self.assertEqual(c.auth_providers(), [])
+
     def test_exchange_google_stores_token(self):
         c = client([(json.dumps({"success": True, "token": "T", "user": {"id": 1}}), 200)])
         res = c.exchange_google("idtok")
@@ -341,6 +399,184 @@ class SpatialReferenceTest(unittest.TestCase):
         self.assertEqual(epsg_from_spatial_reference(info["spatialReference"]),
                          "EPSG:3857")
         self.assertEqual(info["layers"][0]["name"], "Pts")
+
+
+class TileServicesTest(unittest.TestCase):
+    """P4 — list published tile services and build copy-ready per-format URLs."""
+
+    def test_tile_services_unwraps_list(self):
+        c = client([(json.dumps({"ok": True, "services": [
+            {"id": 5, "title": "Ortho", "slug": "ortho", "visibility": "public",
+             "minZoom": 0, "maxZoom": 19, "pmtilesUrl": "/p/5.pmtiles"},
+        ]}), 200)])
+        c.set_token("T")
+        svcs = c.tile_services()
+        self.assertEqual(svcs[0]["title"], "Ortho")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "GET")
+        self.assertTrue(req.full_url.endswith("/platform/raster/services"))
+
+    def test_tile_services_missing_or_malformed_is_empty(self):
+        for body in ({"ok": True}, {"services": "nope"}):
+            c = client([(json.dumps(body), 200)])
+            self.assertEqual(c.tile_services(), [])
+
+    def test_tile_service_unwraps_detail(self):
+        c = client([(json.dumps({"ok": True, "service": {
+            "id": 5, "title": "Ortho", "visibility": "public",
+            "urls": {"pmtiles": "/p/5.pmtiles",
+                     "xyz": "/x/5/{z}/{x}/{y}.webp",
+                     "wmts": "/w/5/WMTSCapabilities.xml"},
+        }}), 200)])
+        c.set_token("T")
+        detail = c.tile_service(5)
+        self.assertEqual(detail["urls"]["xyz"], "/x/5/{z}/{x}/{y}.webp")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "GET")
+        self.assertTrue(req.full_url.endswith("/platform/raster/services/5"))
+
+    def test_tile_service_empty_when_absent(self):
+        c = client([(json.dumps({"ok": True}), 200)])
+        self.assertEqual(c.tile_service(9), {})
+
+    def test_tile_url_absolutizes_relative(self):
+        c = client([])
+        self.assertEqual(
+            c.tile_url("/platform/raster/services/5/xyz/{z}/{x}/{y}.webp"),
+            "https://geoi.de/platform/raster/services/5/xyz/{z}/{x}/{y}.webp",
+        )
+
+    def test_tile_url_absolute_unchanged(self):
+        c = client([])
+        absolute = "https://cdn.example.com/t/5/{z}/{x}/{y}.webp"
+        self.assertEqual(c.tile_url(absolute), absolute)
+
+    def test_tile_url_no_token_for_public(self):
+        c = client([])
+        url = c.tile_url("/x/5/{z}/{x}/{y}.webp",
+                         share_token="SEKRET", visibility="public")
+        self.assertNotIn("token=", url)
+
+    def test_tile_url_appends_token_for_non_public_no_query(self):
+        c = client([])
+        url = c.tile_url("/x/5/{z}/{x}/{y}.webp",
+                         share_token="SEKRET", visibility="private")
+        self.assertTrue(url.endswith("?token=SEKRET"))
+
+    def test_tile_url_appends_token_with_ampersand_when_query_present(self):
+        c = client([])
+        url = c.tile_url("https://cdn.test/w/5/cap.xml?service=WMTS",
+                         share_token="SEKRET", visibility="private")
+        self.assertTrue(url.endswith("&token=SEKRET"))
+        self.assertIn("?service=WMTS", url)
+
+    def test_tile_url_token_percent_encoded(self):
+        c = client([])
+        url = c.tile_url("/x/5/{z}/{x}/{y}.webp",
+                         share_token="a b/c", visibility="private")
+        self.assertTrue(url.endswith("?token=a%20b%2Fc"))
+
+    def test_tile_url_empty_input_is_empty(self):
+        c = client([])
+        self.assertEqual(c.tile_url(""), "")
+        self.assertEqual(c.tile_url(None), "")
+
+    def test_tile_format_urls_builds_all_three(self):
+        c = client([])
+        detail = {
+            "visibility": "private",
+            "shareToken": "TKN",
+            "urls": {
+                "pmtiles": "/p/5.pmtiles",
+                "xyz": "/x/5/{z}/{x}/{y}.webp",
+                "wmts": "https://cdn.test/w/5/WMTSCapabilities.xml",
+            },
+        }
+        urls = c.tile_format_urls(detail)
+        self.assertEqual(urls["pmtiles"],
+                         "https://geoi.de/p/5.pmtiles?token=TKN")
+        self.assertEqual(urls["xyz"],
+                         "https://geoi.de/x/5/{z}/{x}/{y}.webp?token=TKN")
+        self.assertEqual(
+            urls["wmts"],
+            "https://cdn.test/w/5/WMTSCapabilities.xml?token=TKN")
+
+    def test_tile_format_urls_public_has_no_token(self):
+        c = client([])
+        detail = {"visibility": "public",
+                  "urls": {"xyz": "/x/5/{z}/{x}/{y}.webp"}}
+        urls = c.tile_format_urls(detail)
+        self.assertEqual(urls["xyz"],
+                         "https://geoi.de/x/5/{z}/{x}/{y}.webp")
+        self.assertNotIn("wmts", urls)  # missing formats omitted
+
+    def test_tile_services_feature_off_maps_via_friendly_error(self):
+        c = client([(json.dumps({"error": "feature_off"}), 200)])
+        with self.assertRaises(GeoiError) as ctx:
+            c.tile_services()
+        self.assertEqual(ctx.exception.code, "feature_off")
+        self.assertIn("administrator", geoi_client.friendly_error(ctx.exception))
+
+
+class TileServiceManageTest(unittest.TestCase):
+    """Full management of a published tile service: rename, visibility, move,
+    delete — each POSTs/DELETEs the right /raster/services/<id> route."""
+
+    def _body(self, req):
+        return json.loads(req.data.decode("utf-8"))
+
+    def test_rename_posts_title_and_unwraps_service(self):
+        c = client([(json.dumps({"ok": True, "service": {
+            "id": 5, "title": "Renamed"}}), 200)])
+        c.set_token("T")
+        svc = c.rename_tile_service(5, "Renamed")
+        self.assertEqual(svc["title"], "Renamed")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertTrue(req.full_url.endswith("/platform/raster/services/5"))
+        self.assertEqual(self._body(req), {"title": "Renamed"})
+
+    def test_set_visibility_posts_visibility(self):
+        c = client([(json.dumps({"ok": True, "service": {
+            "id": 5, "visibility": "public"}}), 200)])
+        c.set_token("T")
+        svc = c.set_tile_service_visibility(5, "public")
+        self.assertEqual(svc["visibility"], "public")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertTrue(req.full_url.endswith("/platform/raster/services/5"))
+        self.assertEqual(self._body(req), {"visibility": "public"})
+
+    def test_move_posts_folder_id(self):
+        c = client([(json.dumps({"ok": True, "service": {
+            "id": 5, "folderId": "f9"}}), 200)])
+        c.set_token("T")
+        svc = c.move_tile_service(5, "f9")
+        self.assertEqual(svc["folderId"], "f9")
+        req = c._opener.requests[0]
+        self.assertEqual(self._body(req), {"folderId": "f9"})
+
+    def test_move_to_root_posts_empty_folder_id(self):
+        c = client([(json.dumps({"ok": True, "service": {"id": 5}}), 200)])
+        c.set_token("T")
+        c.move_tile_service(5, None)
+        self.assertEqual(self._body(c._opener.requests[0]), {"folderId": ""})
+
+    def test_delete_issues_delete_and_returns_true(self):
+        c = client([(json.dumps({"ok": True}), 200)])
+        c.set_token("T")
+        self.assertTrue(c.delete_tile_service(5))
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "DELETE")
+        self.assertTrue(req.full_url.endswith("/platform/raster/services/5"))
+
+    def test_failure_raises_geoi_error_with_friendly_text(self):
+        c = client([(json.dumps({"error": "quota_exceeded"}), 200)])
+        c.set_token("T")
+        with self.assertRaises(GeoiError) as ctx:
+            c.rename_tile_service(5, "x")
+        self.assertEqual(ctx.exception.code, "quota_exceeded")
+        self.assertIn("quota", geoi_client.friendly_error(ctx.exception))
 
 
 class MultipartTest(unittest.TestCase):

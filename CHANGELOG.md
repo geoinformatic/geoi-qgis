@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.1.0 — cloud raster tiling, multi-provider sign-in, AGPL
+
+This release brings the work matured across the `0.8.0`–`0.19.0` development
+series to the stable line on top of `1.0.0`.
+
+- **Publish raster as cloud-native tiles.** A new *Publish as Tile Service
+  (raster)* flow tiles your **raster layers** or a **folder of GeoTIFFs** into a
+  single **PMTiles** archive (WebP + overviews) and publishes it to geoi. Tiles
+  are **always Web Mercator (EPSG:3857)** — the CRS is fixed, no override. The
+  archive uploads **directly to object storage** via a presigned URL, so your
+  bearer token is never sent off-site, with live **progress and a Cancel** in the
+  QGIS task manager; a cancelled publish deletes its partial files and never
+  registers a half-upload. The **PMTiles writer is bundled** (the pure-Python
+  `pmtiles` package is vendored under `geoi/_vendor/`), so it works out of the
+  box — a native `pmtiles` CLI is used automatically if present (faster). Needs
+  **GDAL ≥ 3.8** (ships with QGIS). Uncovered areas of a reprojected raster are
+  **transparent** (no black borders).
+- **Sign in with Google, Apple or Microsoft.** The sign-in page offers whichever
+  providers your geoi admin enabled, read **live** from the platform (nothing is
+  hardcoded). Google and Apple keep the secure loopback handoff; Microsoft uses
+  the platform's server-side flow.
+- **Storage overview.** The account row shows your total storage usage and
+  percentage at a glance, with a per-kind breakdown on hover. Loaded fail-soft,
+  so it never slows sign-in.
+- **Manage published tile services.** List your tile services, copy their
+  XYZ / WMTS / PMTiles URLs into QGIS, add them as **WMTS** layers, and rename,
+  change visibility, move, share or delete them. The content tree now groups
+  items into **Feature Services / Web Maps / Tile Services** with per-kind icons.
+- **Send feedback.** A *Send feedback…* item reports a bug, feature request or
+  question to the geoi team — with an optional screenshot/PDF and the relevant
+  system info shown before sending. Works signed out.
+- **Calmer startup & faster sign-in.** The plugin starts signed-out and idle; a
+  saved session is re-established silently (no browser, no prompt) and nothing
+  launches a sign-in browser on QGIS start. The provider check no longer blocks
+  the UI thread, and the Google loopback capture server stays bound for the whole
+  sign-in window (fixes the `ERR_CONNECTION_REFUSED` on redirect).
+- **Relicensed under [AGPL-3.0](LICENSE).** The bundled PMTiles writer remains
+  third-party BSD-3-Clause code (see [NOTICE](NOTICE)).
+
 ## 1.0.0 — first stable release
 - First stable release on the QGIS Plugin Repository (`experimental` cleared).
 - Connect QGIS to a geoi platform end to end: zero-config Google sign-in,

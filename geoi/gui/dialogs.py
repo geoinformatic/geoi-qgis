@@ -1,15 +1,21 @@
 """Small modal dialogs: server settings, publish, save-to-geoi."""
 
+import os
+
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
     QVBoxLayout,
 )
 from qgis.PyQt.QtCore import Qt
@@ -28,8 +34,9 @@ class SettingsDialog(QDialog):
         self._base.setPlaceholderText(settings.DEFAULT_BASE_URL)
         form.addRow("Platform URL", self._base)
         hint = QLabel(
-            "The geoi platform to sign in to. Sign-in uses your platform's own "
-            "Google sign-in — no other configuration is needed."
+            "The geoi platform to sign in to. Sign-in reuses your platform's own "
+            "web sign-in — whichever of Google, Apple or Microsoft your admin "
+            "enabled — with no other configuration needed."
         )
         hint.setWordWrap(True)
         form.addRow(hint)
@@ -49,7 +56,7 @@ class PublishDialog(QDialog):
     def __init__(self, layers_info, default_name="My layers", groups=None,
                  parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Publish to geoi as a service")
+        self.setWindowTitle("Publish as Feature Service (vector)")
         self.setMinimumWidth(420)
         layout = QVBoxLayout(self)
 
@@ -134,6 +141,88 @@ class PublishDialog(QDialog):
             if item.checkState() == Qt.CheckState.Checked:
                 ids.append(item.data(Qt.ItemDataRole.UserRole))
         return ids
+
+
+class PublishRasterDialog(QDialog):
+    """Choose raster sources + a name to publish as cloud-native PMTiles.
+
+    Sources are EITHER a folder of GeoTIFFs OR the project's loaded raster
+    layers (checked). The target CRS is **Web Mercator (EPSG:3857), fixed** —
+    shown as a read-only label, with NO editable CRS widget.
+    """
+
+    def __init__(self, raster_layers_info=None, default_name="My tiles", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Publish as Tile Service (raster)")
+        self.setMinimumWidth(440)
+        self._folder = ""
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("Tile set name"))
+        self._name = QLineEdit(default_name)
+        layout.addWidget(self._name)
+
+        # --- source: loaded raster layers ---
+        layout.addWidget(QLabel("Raster layers to tile"))
+        self._list = QListWidget()
+        for info in raster_layers_info or []:
+            item = QListWidgetItem(info.get("name", ""))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            item.setData(Qt.ItemDataRole.UserRole, info.get("source"))
+            self._list.addItem(item)
+        layout.addWidget(self._list)
+
+        # --- source: a folder of GeoTIFFs ---
+        self._folder_btn = QPushButton("Choose a folder of GeoTIFFs…")
+        self._folder_btn.clicked.connect(self._pick_folder)
+        layout.addWidget(self._folder_btn)
+        self._folder_label = QLabel("No folder chosen")
+        self._folder_label.setWordWrap(True)
+        layout.addWidget(self._folder_label)
+
+        # --- fixed CRS (read-only, no widget to change it) ---
+        crs = QLabel("CRS: Web Mercator (EPSG:3857) — fixed")
+        crs.setWordWrap(True)
+        layout.addWidget(crs)
+
+        buttons = QDialogButtonBox(_SB.Ok | _SB.Cancel)
+        buttons.button(_SB.Ok).setText("Publish tiles")
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _pick_folder(self):
+        path = QFileDialog.getExistingDirectory(self, "Choose a folder of GeoTIFFs")
+        if not path:
+            return
+        self._folder = path
+        self._folder_label.setText(path)
+
+    def _on_accept(self):
+        if not self.sources():
+            QMessageBox.warning(
+                self, "geoi",
+                "Choose at least one raster layer or a folder of GeoTIFFs.")
+            return
+        self.accept()
+
+    def tile_name(self):
+        return self._name.text().strip()
+
+    def sources(self):
+        """The chosen raster sources: a folder path plus each checked layer's
+        file source. Empty entries are dropped."""
+        out = []
+        if self._folder:
+            out.append(self._folder)
+        for row in range(self._list.count()):
+            item = self._list.item(row)
+            if item.checkState() == Qt.CheckState.Checked:
+                source = item.data(Qt.ItemDataRole.UserRole)
+                if source:
+                    out.append(source)
+        return out
 
 
 class SaveProjectDialog(QDialog):
@@ -302,3 +391,114 @@ def _indented_folders(folders):
         if pid is not None and pid not in known:
             out.append((f.get("title") or "Folder", f.get("id")))
     return out
+
+
+_MAX_FEEDBACK_FILE = 5 * 1024 * 1024  # 5 MB
+
+_FEEDBACK_CATEGORIES = [
+    ("Bug — something is broken", "bug"),
+    ("Feature request", "feature"),
+    ("Improvement / idea", "improvement"),
+    ("Question", "question"),
+    ("General", "general"),
+]
+
+
+class FeedbackDialog(QDialog):
+    """Send a bug report / feature request to the geoi team.
+
+    Category, description (required), optional title, optional contact email
+    (prefilled when signed in) and an optional screenshot/PDF (<= 5 MB). The
+    auto-collected system info is shown read-only so the user sees exactly
+    what is sent. Posts to /platform/feedback.
+    """
+
+    def __init__(self, system_info=None, default_email="", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("geoi — send feedback")
+        self.setMinimumWidth(440)
+        self._attachment = None
+
+        form = QFormLayout(self)
+
+        self._category = QComboBox()
+        for label, value in _FEEDBACK_CATEGORIES:
+            self._category.addItem(label, value)
+        form.addRow("Category", self._category)
+
+        self._title = QLineEdit()
+        self._title.setPlaceholderText("Short summary (optional)")
+        form.addRow("Title", self._title)
+
+        self._body = QPlainTextEdit()
+        self._body.setPlaceholderText("What happened, or what would help you?")
+        self._body.setMinimumHeight(120)
+        form.addRow("Description", self._body)
+
+        self._email = QLineEdit(default_email or "")
+        self._email.setPlaceholderText("you@example.com (optional — for a reply)")
+        form.addRow("Your email", self._email)
+
+        attach_row = QVBoxLayout()
+        self._attach_btn = QPushButton("Attach screenshot / PDF…")
+        self._attach_btn.clicked.connect(self._pick_file)
+        attach_row.addWidget(self._attach_btn)
+        self._attach_label = QLabel("No file attached (max 5 MB)")
+        self._attach_label.setWordWrap(True)
+        attach_row.addWidget(self._attach_label)
+        form.addRow("Attachment", attach_row)
+
+        info = QPlainTextEdit()
+        info.setReadOnly(True)
+        info.setMaximumHeight(110)
+        info.setPlainText(self._format_info(system_info or {}))
+        form.addRow("System info (sent)", info)
+
+        buttons = QDialogButtonBox(_SB.Ok | _SB.Cancel)
+        buttons.button(_SB.Ok).setText("Send")
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+    @staticmethod
+    def _format_info(info):
+        return "\n".join("%s: %s" % (k, info[k]) for k in sorted(info))
+
+    def _pick_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Attach screenshot or PDF", "",
+            "Images and PDF (*.png *.jpg *.jpeg *.gif *.webp *.pdf)")
+        if not path:
+            return
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+        if size <= 0 or size > _MAX_FEEDBACK_FILE:
+            QMessageBox.warning(self, "geoi",
+                                "Please attach an image or PDF up to 5 MB.")
+            return
+        self._attachment = path
+        self._attach_label.setText(os.path.basename(path))
+
+    def _on_accept(self):
+        if not self.description():
+            QMessageBox.warning(self, "geoi", "Please describe the issue or idea first.")
+            self._body.setFocus()
+            return
+        self.accept()
+
+    def category(self):
+        return self._category.currentData() or "general"
+
+    def title(self):
+        return self._title.text().strip()
+
+    def description(self):
+        return self._body.toPlainText().strip()
+
+    def email(self):
+        return self._email.text().strip()
+
+    def attachment_path(self):
+        return self._attachment

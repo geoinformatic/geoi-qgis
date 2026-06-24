@@ -7,6 +7,7 @@ ship. It speaks the same endpoints the geoi web app uses, under
 ``<base>/platform/``:
 
   GET  /auth/config      sign-in availability + Google client ids
+  GET  /auth/providers   the enabled sign-in providers (the website's source)
   POST /auth/google      exchange a Google ID token -> 30-day session token
   GET  /auth/me          current user
   POST /auth/signout     revoke the session
@@ -20,6 +21,8 @@ ArcGIS Feature Service provider consumes natively.
 """
 
 import json
+import mimetypes
+import os
 import ssl
 import urllib.error
 import urllib.parse
@@ -89,6 +92,39 @@ class GeoiError(Exception):
         self.code = code
 
 
+# Friendly, actionable text for the raster-publish error CODES the platform
+# emits (api/raster.php). Clients key off the stable `error` CODE, never the
+# server's English message — so a server wording change never breaks this map.
+RASTER_ERROR_MESSAGES = {
+    "feature_off": (
+        "Raster tile publishing isn't enabled on this geoi server yet — ask "
+        "your administrator to turn it on (Account → Administration → Tile "
+        "Services)."
+    ),
+    "quota_exceeded": (
+        "Your raster storage quota is full. Delete an old tile set and try "
+        "again."
+    ),
+    "unauthorized": "Please sign in to geoi first, then retry.",
+    "rate_limited": "Too many uploads just now — wait a minute and try again.",
+    "bad_request": "The server rejected the upload request.",
+}
+
+
+def friendly_error(exc):
+    """Map a raster-publish error to a clear, actionable sentence.
+
+    Prefers the friendly text for a known server error CODE, then the server's
+    own message, then the bare string — so an unmapped code is behaviourally
+    identical to the old "show the message" path.
+    """
+    return (
+        RASTER_ERROR_MESSAGES.get(getattr(exc, "code", None))
+        or getattr(exc, "message", None)
+        or str(exc)
+    )
+
+
 def normalize_base(base_url):
     """Trim and default a base URL; assume https when no scheme is given."""
     base = (base_url or DEFAULT_BASE_URL).strip().rstrip("/")
@@ -116,6 +152,20 @@ class GeoiClient:
 
     def auth_config(self):
         return self._request("GET", "/auth/config", auth=False)
+
+    def auth_providers(self, timeout=None):
+        """The enabled sign-in providers (#585) — the SAME source the website
+        reads. Returns the list of ``{id, label, icon, clientId?}`` entries;
+        ``[]`` means sign-in is not configured. NO hardcoded provider list:
+        the provider choice is rendered by the hosted desktop-signin page.
+
+        ``timeout`` overrides the client default so a caller (the sign-in task)
+        can run a SHORT, non-blocking availability pre-check and not freeze on a
+        slow ``/auth/providers`` round-trip.
+        """
+        res = self._request("GET", "/auth/providers", auth=False, timeout=timeout)
+        providers = res.get("providers") if isinstance(res, dict) else None
+        return providers if isinstance(providers, list) else []
 
     def exchange_google(self, id_token):
         """POST a Google ID token, store and return the session token + user."""
@@ -147,8 +197,20 @@ class GeoiClient:
     def list_folders(self):
         return self._request("GET", "/hub/folders").get("folders", [])
 
-    def list_groups(self):
-        return self._request("GET", "/hub/groups").get("groups", [])
+    def list_groups(self, timeout=None):
+        return self._request("GET", "/hub/groups", timeout=timeout).get("groups", [])
+
+    def storage(self, timeout=None):
+        """The signed-in user's storage usage (#677).
+
+        ``GET /hub/storage`` -> ``{ok, usedBytes, quotaBytes, percent,
+        breakdown:{feature, tile, project, app}}``. ``quotaBytes == 0`` means
+        the account is UNLIMITED (show the used figure, no percent/bar). The
+        bearer rides via ``_request``; the caller catches a ``GeoiError`` and
+        hides the line, so a missing/slow endpoint never blocks sign-in.
+        """
+        res = self._request("GET", "/hub/storage", timeout=timeout)
+        return res if isinstance(res, dict) else {}
 
     def get_service(self, name):
         path = "/hub/services/" + urllib.parse.quote(name, safe="")
@@ -330,6 +392,247 @@ class GeoiClient:
                     pass
         return svc
 
+    # ------------------------------------------------------- raster tiles
+    def raster_presign(self, name, byte_count):
+        """Ask the platform for a presigned PUT URL for a ``.pmtiles`` upload.
+
+        ``POST /raster/presign {name, bytes}`` -> ``{uploadUrl, objectKey,
+        publicUrl?}``. ``uploadUrl`` is a short-lived, self-authenticating
+        store URL (Backblaze B2 S3) the client PUTs the file to directly —
+        WITHOUT our bearer (see ``put_url``).
+        """
+        res = self._request(
+            "POST", "/raster/presign",
+            json_body={"name": name, "bytes": int(byte_count)},
+        )
+        if not isinstance(res, dict) or not res.get("uploadUrl"):
+            raise GeoiError(
+                "The server did not return an upload URL for the raster tiles. "
+                "Response: " + _short(res)
+            )
+        return res
+
+    def raster_confirm(self, object_key, byte_count, bounds=None):
+        """Finalise a raster upload after the store PUT succeeds.
+
+        ``POST /raster/confirm {objectKey, bytes, bounds?}`` — the server
+        verifies the object and records the catalogue entry, returning the
+        public read URL.
+        """
+        payload = {"objectKey": object_key, "bytes": int(byte_count)}
+        if bounds is not None:
+            payload["bounds"] = bounds
+        res = self._request("POST", "/raster/confirm", json_body=payload)
+        return res if isinstance(res, dict) else {}
+
+    def raster_list(self):
+        """List the signed-in user's published raster tile sets."""
+        res = self._request("GET", "/raster/mine")
+        # The server emits the list under "layers" (api/raster.php).
+        layers = res.get("layers") if isinstance(res, dict) else None
+        return layers if isinstance(layers, list) else []
+
+    # ------------------------------------------------------- tile services
+    def tile_services(self, timeout=None):
+        """List the user's published raster TILE SERVICES (P4).
+
+        ``GET /raster/services`` -> ``{services: [{id, title, slug,
+        visibility, backend, bytes, minZoom, maxZoom, created, updated,
+        pmtilesUrl}]}``. The summary carries enough (id, title, visibility)
+        for the tree; the per-format URLs come from ``tile_service``.
+
+        ``timeout`` overrides the client default for this OPTIONAL call so a
+        slow/missing endpoint can't stall the post-sign-in content load.
+        """
+        res = self._request("GET", "/raster/services", timeout=timeout)
+        services = res.get("services") if isinstance(res, dict) else None
+        return services if isinstance(services, list) else []
+
+    def tile_service(self, service_id):
+        """Detail for one tile service, incl. the per-format URLs (P4).
+
+        ``GET /raster/services/<id>`` -> ``{service: {…, urls: {pmtiles,
+        xyz, wmts}, shareToken?}}``. ``urls.xyz`` is a ``{z}/{x}/{y}.webp``
+        template, ``urls.wmts`` the WMTSCapabilities.xml URL, ``urls.pmtiles``
+        the archive URL — each possibly root-relative (absolutize with
+        ``tile_url``). ``shareToken`` is present only for a non-public
+        service (append it with ``tile_url`` so the URL works without
+        sign-in).
+        """
+        path = "/raster/services/" + urllib.parse.quote(str(service_id), safe="")
+        res = self._request("GET", path)
+        svc = res.get("service") if isinstance(res, dict) else None
+        return svc if isinstance(svc, dict) else {}
+
+    def _tile_path(self, service_id):
+        return "/raster/services/" + urllib.parse.quote(str(service_id), safe="")
+
+    def rename_tile_service(self, service_id, title):
+        """Rename a published tile service (``POST /raster/services/<id>
+        {title}`` -> ``{ok, service}``). Returns the updated service dict."""
+        res = self._request(
+            "POST", self._tile_path(service_id), json_body={"title": title}
+        )
+        return res.get("service", {}) if isinstance(res, dict) else {}
+
+    def set_tile_service_visibility(self, service_id, visibility):
+        """Change a tile service's visibility (``private``|``groups``|``public``)
+        — ``POST /raster/services/<id> {visibility}`` -> ``{ok, service}``."""
+        res = self._request(
+            "POST", self._tile_path(service_id),
+            json_body={"visibility": visibility},
+        )
+        return res.get("service", {}) if isinstance(res, dict) else {}
+
+    def move_tile_service(self, service_id, folder_id):
+        """Move a tile service into a folder (a ``content_folders`` id) or to
+        the root (``""``/``None``) — ``POST /raster/services/<id> {folderId}``
+        -> ``{ok, service{folderId}}``."""
+        res = self._request(
+            "POST", self._tile_path(service_id),
+            json_body={"folderId": folder_id or ""},
+        )
+        return res.get("service", {}) if isinstance(res, dict) else {}
+
+    def delete_tile_service(self, service_id):
+        """Delete a published tile service (``DELETE /raster/services/<id>``
+        -> ``{ok}``). Returns ``True``."""
+        self._request("DELETE", self._tile_path(service_id))
+        return True
+
+    def tile_url(self, raw_url, *, share_token=None, visibility=None):
+        """Build a copy-ready absolute tile URL from a service ``urls.*`` value.
+
+        Mirrors how the geoi web client absolutizes + tokenizes a tile URL:
+
+        * a ROOT-RELATIVE url (``/platform/raster/…``) is made absolute
+          against ``base_url``; an already-absolute ``http(s)://`` url is
+          returned host-and-path unchanged;
+        * for a NON-public service a ``share_token`` is appended as
+          ``?token=`` (or ``&token=`` when the url already has a query) so
+          the link works in QGIS without a geoi sign-in. A public service
+          gets no token.
+
+        Pure / stdlib-only so it is unit-testable off QGIS.
+        """
+        url = (raw_url or "").strip()
+        if not url:
+            return ""
+        if "://" not in url:
+            url = self.base_url + ("/" + url.lstrip("/"))
+        if share_token and visibility != "public":
+            sep = "&" if "?" in url else "?"
+            url += sep + "token=" + urllib.parse.quote(str(share_token), safe="")
+        return url
+
+    def tile_format_urls(self, detail):
+        """Absolute, tokenized {xyz, wmts, pmtiles} URLs from a tile detail.
+
+        ``detail`` is the dict from ``tile_service``; reads ``urls`` +
+        ``shareToken`` + ``visibility`` and runs each through ``tile_url``.
+        Missing formats are omitted.
+        """
+        if not isinstance(detail, dict):
+            return {}
+        urls = detail.get("urls") if isinstance(detail.get("urls"), dict) else {}
+        token = detail.get("shareToken")
+        visibility = detail.get("visibility")
+        out = {}
+        for fmt in ("xyz", "wmts", "pmtiles"):
+            built = self.tile_url(
+                urls.get(fmt), share_token=token, visibility=visibility
+            )
+            if built:
+                out[fmt] = built
+        return out
+
+    def _absolutize_upload_url(self, url):
+        """Resolve a presign ``uploadUrl`` to an absolute, PUT-able URL.
+
+        The platform's two storage backends hand back two shapes:
+
+        * Backblaze B2 — an already-absolute ``https://…`` presigned URL,
+          returned unchanged (it self-authenticates and lives off-site).
+        * Server (local) — a ROOT-RELATIVE, token-authenticated
+          ``/platform/raster/upload?t=<token>`` URL. ``urllib`` cannot PUT
+          to that ("unknown url type"), so resolve it against ``base_url``.
+          The server's relative URL ALREADY carries the ``/platform`` prefix
+          and ``base_url`` is the site root WITHOUT it, so a plain
+          concatenation is correct.
+
+        Neither shape changes the no-Authorization rule: the B2 URL is
+        self-signed; the local URL is HMAC-authenticated by ``?t=``.
+        """
+        url = (url or "").strip()
+        if not url:
+            return url
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        # Protocol-relative ("//host/…") is NOT a same-origin path — leave it
+        # untouched (neither backend emits it; never prefix base_url onto it).
+        if url.startswith("//"):
+            return url
+        if url.startswith("/"):
+            return self.base_url + url
+        return url
+
+    def put_url(self, url, file_path, content_type="application/octet-stream"):
+        """PUT a file to an upload URL (the presigned object-store URL or the
+        token-authenticated server-local upload URL).
+
+        This bypasses ``_request`` (which prefixes the platform base) AND the
+        ``_ApiRedirect`` opener, and it attaches NO ``Authorization`` header:
+        the B2 presigned URL self-authenticates and the local ``?t=`` URL is
+        HMAC-authenticated, and sending the geoi bearer to the object store (a
+        different host) would leak our token. A ROOT-RELATIVE local upload URL
+        is absolutized against ``base_url`` first (a raw ``urllib`` PUT to a
+        scheme-less URL raises "unknown url type"). A direct ``urllib`` PUT
+        with a default opener.
+        """
+        url = self._absolutize_upload_url(url)
+        with open(file_path, "rb") as handle:
+            data = handle.read()
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Content-Type": content_type,
+            "Content-Length": str(len(data)),
+        }
+        # Explicitly NO Authorization header — never send our token off-site.
+        req = urllib.request.Request(url, data=data, headers=headers, method="PUT")
+        # A plain default opener: NOT self._opener (which carries _ApiRedirect's
+        # method-preserving bearer re-attach), so even on a redirect our token
+        # can't ride. `_put_opener` is injectable for tests only.
+        opener = getattr(self, "_put_opener", None)
+        do_open = opener.open if opener is not None else urllib.request.urlopen
+        try:
+            with do_open(req, timeout=self.timeout) as resp:
+                status = getattr(resp, "status", None) or getattr(resp, "code", 200) or 200
+        except urllib.error.HTTPError as exc:
+            body = ""
+            try:
+                body = (exc.read() or b"").decode("utf-8", "replace")[:200]
+            except Exception:  # noqa: BLE001
+                pass
+            raise GeoiError(
+                "Uploading the tiles to storage failed (HTTP {}). {}".format(
+                    exc.code, body
+                ),
+                status=exc.code,
+            )
+        except (urllib.error.URLError, ssl.SSLError) as exc:
+            reason = getattr(exc, "reason", exc)
+            raise GeoiError("Network error uploading tiles: {}".format(reason))
+        # Log a REDACTED url — the query string carries the SigV4 signature
+        # (a short-lived write credential), which must never reach the log.
+        safe_url = url.split("?", 1)[0]
+        self._note("PUT {} ({} bytes) -> HTTP {}".format(safe_url, len(data), status))
+        if status >= 400:
+            raise GeoiError(
+                "Uploading the tiles to storage failed (HTTP {}).".format(status),
+                status=status,
+            )
+        return True
+
     def save_project(self, name, data, visibility=None):
         """Save a project document ("geoi package") to the platform."""
         payload = {"name": name, "data": data}
@@ -344,6 +647,39 @@ class GeoiClient:
             )
         return proj
 
+    def send_feedback(self, *, category, body, title="", email="",
+                      source="qgis", app_version="", sysinfo="",
+                      attachment_path=None):
+        """Submit a feedback / bug report to /platform/feedback.
+
+        Sign-in is OPTIONAL — the bearer token is attached only when present.
+        Text fields ride as plain form fields; an optional screenshot/PDF
+        rides as a file part. Returns the parsed {ok, id} response.
+        """
+        fields = {
+            "category": category or "general",
+            "title": title or "",
+            "body": body or "",
+            "email": email or "",
+            "source": source or "qgis",
+            "appVersion": app_version or "",
+            "sysinfo": sysinfo or "",
+        }
+        files = None
+        if attachment_path:
+            with open(attachment_path, "rb") as handle:
+                data = handle.read()
+            ctype = mimetypes.guess_type(attachment_path)[0] or "application/octet-stream"
+            files = {"file": (os.path.basename(attachment_path), data, ctype)}
+        raw, ctype = encode_multipart_form(fields, files)
+        res = self._request("POST", "/feedback", raw_body=raw,
+                            content_type=ctype, auth=True)
+        if not (isinstance(res, dict) and res.get("ok")):
+            raise GeoiError(
+                "The server did not accept the feedback. Response: " + _short(res)
+            )
+        return res
+
     # ------------------------------------------------------------- transport
     def _request(
         self,
@@ -354,6 +690,7 @@ class GeoiClient:
         raw_body=None,
         content_type=None,
         auth=True,
+        timeout=None,
     ):
         url = self.base_url + PLATFORM_PREFIX + path
         headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
@@ -369,8 +706,9 @@ class GeoiClient:
             headers["Authorization"] = "Bearer " + self.token
 
         req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        eff_timeout = self.timeout if timeout is None else timeout
         try:
-            with self._opener.open(req, timeout=self.timeout) as resp:
+            with self._opener.open(req, timeout=eff_timeout) as resp:
                 payload = resp.read()
                 status = getattr(resp, "status", None) or getattr(resp, "code", 200) or 200
         except urllib.error.HTTPError as exc:
@@ -424,6 +762,60 @@ def epsg_from_spatial_reference(spatial_reference, default="EPSG:3857"):
     return "EPSG:{}".format(wkid)
 
 
+def fmt_bytes(num):
+    """Human-readable byte count: ``0 B`` / ``12 KB`` / ``3.4 MB`` / ``1.2 GB``.
+
+    Decimal (1000-based) units to match how the platform reports quotas. One
+    decimal place for MB/GB/TB, none for B/KB. A non-numeric/negative input
+    formats as ``0 B`` so the overview line never shows junk.
+    """
+    try:
+        value = float(num)
+    except (TypeError, ValueError):
+        value = 0.0
+    if value < 0:
+        value = 0.0
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    idx = 0
+    while value >= 1000 and idx < len(units) - 1:
+        value /= 1000.0
+        idx += 1
+    if idx <= 1:  # B and KB read better as whole numbers
+        return "{:.0f} {}".format(value, units[idx])
+    return "{:.1f} {}".format(value, units[idx])
+
+
+def storage_overview(storage):
+    """One muted account-row line from a ``/hub/storage`` envelope (#677).
+
+    * a set quota -> ``"<used> of <quota> used (<pct>%)"``
+    * ``quotaBytes == 0`` (unlimited) -> ``"<used> used"``
+    * no/blank envelope -> ``""`` (the caller hides the line)
+
+    The percent prefers the server's ``percent`` and falls back to a computed
+    ``used/quota`` so the line is right even if the server omits it.
+    """
+    if not isinstance(storage, dict):
+        return ""
+    used = storage.get("usedBytes")
+    if used is None:
+        return ""
+    quota = storage.get("quotaBytes") or 0
+    try:
+        quota = int(quota)
+    except (TypeError, ValueError):
+        quota = 0
+    if quota <= 0:
+        return "{} used".format(fmt_bytes(used))
+    pct = storage.get("percent")
+    if not isinstance(pct, (int, float)):
+        try:
+            pct = (float(used) / float(quota)) * 100.0
+        except (TypeError, ValueError, ZeroDivisionError):
+            pct = 0.0
+    return "{} of {} used ({:.0f}%)".format(fmt_bytes(used), fmt_bytes(quota), pct)
+
+
 def _short(obj, limit=400):
     try:
         text = obj if isinstance(obj, str) else json.dumps(obj)
@@ -464,17 +856,55 @@ def _error_message(data):
         err = data.get("error")
         if isinstance(err, dict):
             return err.get("message") or err.get("details")
-        if isinstance(err, str):
-            return err
+        # A flat `error` is a stable CODE (e.g. "feature_off"); prefer the
+        # server's sibling human `message` over echoing the bare token.
         if isinstance(data.get("message"), str):
             return data["message"]
+        if isinstance(err, str):
+            return err
     return None
 
 
 def _error_code(data):
-    if isinstance(data, dict) and isinstance(data.get("error"), dict):
-        return data["error"].get("code")
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict):
+            return err.get("code")
+        # The platform emits `error` as a flat string code
+        # (api/raster.php: 'error' => 'feature_off') — return it as the code.
+        if isinstance(err, str):
+            return err
     return None
+
+
+def encode_multipart_form(fields, files=None):
+    """Encode multipart/form-data with proper text vs file parts.
+
+    `fields` (name -> str) are plain form fields (no filename) so they land
+    in PHP's $_POST; `files` (name -> (filename, data, content_type)) carry a
+    filename + Content-Type so they land in $_FILES.
+    """
+    boundary = "----geoiqgis" + uuid.uuid4().hex
+    crlf = b"\r\n"
+    bb = boundary.encode("ascii")
+    out = []
+    for name, value in (fields or {}).items():
+        out.append(b"--" + bb)
+        out.append(('Content-Disposition: form-data; name="{}"'.format(name)).encode("utf-8"))
+        out.append(b"")
+        out.append(value.encode("utf-8") if isinstance(value, str) else value)
+    for name, (filename, data, ctype) in (files or {}).items():
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        out.append(b"--" + bb)
+        out.append(('Content-Disposition: form-data; name="{}"; filename="{}"'.format(
+            name, filename)).encode("utf-8"))
+        out.append(("Content-Type: " + ctype).encode("ascii"))
+        out.append(b"")
+        out.append(data)
+    out.append(b"--" + bb + b"--")
+    out.append(b"")
+    return crlf.join(out), "multipart/form-data; boundary=" + boundary
 
 
 def encode_multipart(files):

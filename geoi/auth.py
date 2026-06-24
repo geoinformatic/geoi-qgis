@@ -1,12 +1,13 @@
 """Zero-config sign-in for the QGIS plugin.
 
-The plugin is NOT a Google OAuth client. Instead it reuses the geoi web
-app's own Google sign-in: it opens the hosted handoff page
+The plugin is NOT an OAuth client. Instead it reuses the geoi web
+app's own sign-in: it opens the hosted handoff page
 ``<base>/desktop-signin.html`` in the system browser, the user signs in with
-the same Google button the web app shows (the existing web OAuth client, no
-configuration), and the page hands the resulting geoi **session token** back
-to the plugin over a LOOPBACK redirect (``http://127.0.0.1:<port>``). A
-``state`` nonce ties the response to this request.
+whichever provider the geoi admin enabled (Google, Apple or Microsoft — the
+page reads the live list, nothing is hardcoded), and the page hands the
+resulting geoi **session token** back to the plugin over a LOOPBACK redirect
+(``http://127.0.0.1:<port>``). A ``state`` nonce ties the response to this
+request.
 
 The loopback flow is pure standard-library and unit-tested. ``SessionStore``
 (encrypted token storage + the bearer auth config the ArcGIS provider uses)
@@ -15,6 +16,8 @@ imports qgis lazily.
 
 import http.server
 import secrets
+import socketserver
+import time
 import urllib.parse
 import webbrowser
 
@@ -65,30 +68,81 @@ def build_signin_url(base_url, port, state):
     return "{}{}?{}".format(base, SIGNIN_PATH, query)
 
 
+class _LoopbackServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    """A loopback capture server whose listening socket stays bound+listening
+    for the WHOLE sign-in window.
+
+    ``ThreadingMixIn`` means a (slow) request handler runs on its own thread,
+    so the accept loop is never blocked by a single request and the socket
+    keeps accepting the redirect even if the browser is slow. ``daemon_threads``
+    keeps QGIS shutdown clean.
+    """
+
+    daemon_threads = True
+    # Don't let the accept socket linger in TIME_WAIT and refuse a quick retry.
+    allow_reuse_address = True
+
+
+# How long (seconds) a cancel signal must persist before we actually abort.
+# A single spurious ``isCanceled()`` during QgsTask teardown must NOT slam the
+# listening socket shut while the OAuth redirect may still be in flight — only
+# a SUSTAINED cancel is a genuine user cancel. The redirect, when it arrives,
+# always wins over a pending cancel.
+_CANCEL_CONFIRM_SECONDS = 2.0
+
+# Poll interval for the cancel/result check (seconds). Short so a genuine
+# cancel is responsive, but the socket stays listening the whole time.
+_POLL_SECONDS = 0.25
+
+
 def run_web_signin(base_url, open_url=None, timeout=300, is_cancelled=None):
     """Open the hosted sign-in page and capture the session token via loopback.
 
     Returns the geoi session token (already exchanged by the page).
-    `open_url` defaults to the system browser; `is_cancelled` is polled so a
-    host UI can abort.
+    ``open_url`` defaults to the system browser; ``is_cancelled`` is polled so a
+    host UI can abort — but ONLY a SUSTAINED cancel aborts, so a spurious
+    QgsTask ``isCanceled()`` during teardown can't close the socket out from
+    under an in-flight redirect (ERR_CONNECTION_REFUSED).
+
+    The listening socket is created and ``listen()``-ing BEFORE the browser is
+    opened (``socketserver.TCPServer.__init__`` binds + activates), and stays
+    listening for the entire wait window, independent of the caller's task
+    lifecycle — so the redirect is never refused.
     """
     state = secrets.token_urlsafe(24)
-    server = http.server.HTTPServer(("127.0.0.1", 0), _TokenHandler)
+    # Bound + listening immediately (server_bind + server_activate run in
+    # __init__), BEFORE we open the browser.
+    server = _LoopbackServer(("127.0.0.1", 0), _TokenHandler)
     server.expected_state = state
     server.result = None
-    server.timeout = 1
+    # Short blocking timeout so the accept poll wakes regularly to check
+    # cancel/result/deadline — the socket stays listening between polls.
+    server.timeout = _POLL_SECONDS
     port = server.server_address[1]
 
     url = build_signin_url(base_url, port, state)
     (open_url or webbrowser.open)(url)
 
-    waited = 0
+    deadline = time.monotonic() + timeout
+    cancel_since = None
     try:
-        while server.result is None and waited < timeout:
+        while server.result is None and time.monotonic() < deadline:
+            # Confirm a SUSTAINED cancel before aborting. A single transient
+            # isCanceled() (task teardown) does NOT close the socket; the
+            # redirect can still land. Only a cancel that persists for
+            # _CANCEL_CONFIRM_SECONDS is treated as a genuine user cancel.
             if is_cancelled and is_cancelled():
-                raise AuthError("Sign-in cancelled.")
-            server.handle_request()  # one request per second (server.timeout)
-            waited += 1
+                now = time.monotonic()
+                if cancel_since is None:
+                    cancel_since = now
+                elif now - cancel_since >= _CANCEL_CONFIRM_SECONDS:
+                    raise AuthError("Sign-in cancelled.")
+            else:
+                cancel_since = None
+            # Accept at most one request, waking after server.timeout so the
+            # loop re-checks the deadline/cancel. The threading server means a
+            # slow handler never blocks the listening socket.
+            server.handle_request()
     finally:
         try:
             server.server_close()
@@ -145,7 +199,16 @@ class SessionStore:
         Returns the authcfg id to attach to layer URIs, or "" if the auth
         config could not be created (sign-in must never fail because of this —
         public services still work without it).
+
+        The ``APIHeader`` config bakes the LITERAL ``Authorization: Bearer
+        <token>`` string in at build time, so it MUST be rebuilt from the
+        CURRENT token whenever the session token changes — otherwise it keeps
+        injecting a stale/expired bearer and every private add 401s. An empty
+        token returns "" without touching the store (never bake an empty
+        bearer that would silently break private adds).
         """
+        if not token:
+            return ""
         try:
             from qgis.core import QgsApplication, QgsAuthMethodConfig
 
