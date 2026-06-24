@@ -19,7 +19,7 @@ jobs:
           python-version: '3.11'
       - run: pip install flake8
       - name: Byte-compile every module
-        run: python -m py_compile geoi/*.py geoi/gui/*.py tests/*.py
+        run: python -m py_compile geoi/*.py geoi/gui/*.py geoi/_vendor/pmtiles/*.py tests/*.py
       - name: Lint
         run: flake8 --max-line-length=100 --extend-ignore=E203,W503 geoi tests
       - name: Forbid Qt5-only idioms (must run on QGIS 3 AND 4)
@@ -56,7 +56,8 @@ jobs:
         run: |
           python3 -c "import sys; sys.path.insert(0, '.'); \
             import geoi.plugin, geoi.gui.browser_panel, geoi.gui.dialogs, \
-                   geoi.tasks, geoi.settings, geoi.auth, geoi.convert, geoi.geoi_client; \
+                   geoi.tasks, geoi.settings, geoi.auth, geoi.convert, geoi.geoi_client, \
+                   geoi.content_tree, geoi.style, geoi.raster; \
             print('plugin imports OK under', __import__('qgis.core', fromlist=['Qgis']).Qgis.QGIS_VERSION)"
       - name: Verify the PyQGIS API the plugin calls actually exists
         run: |

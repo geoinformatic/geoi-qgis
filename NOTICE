@@ -1,9 +1,18 @@
 geoi QGIS plugin
-Copyright 2026 geoinformatic
+Copyright (C) 2026 geoinformatic
 
-This product includes software developed at geoinformatic (https://geoi.de).
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See the LICENSE file for the full text.
 
-Licensed under the Apache License, Version 2.0. See the LICENSE file.
+"geoi" is a product name and trademark of geoinformatic. The AGPL-3.0 licence
+covers the source code only, not the name or logo.
 
-"geoi" is a product name and trademark of geoinformatic. The Apache-2.0
-license covers the source code only, not the name or logo.
+Third-party components
+----------------------
+This plugin bundles a vendored copy of the pure-Python "pmtiles" library under
+geoi/_vendor/pmtiles/, used to write cloud-native PMTiles archives. It is the
+work of Protomaps and is distributed under the BSD-3-Clause licence; the PMTiles
+specification itself is public domain (CC0 where applicable). See
+geoi/_vendor/pmtiles/LICENSE for the verbatim terms.

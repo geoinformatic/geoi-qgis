@@ -42,4 +42,4 @@ latest.
 5. Open a PR with a clear description of the problem and the fix.
 
 By contributing you agree that your contributions are licensed under the
-project's [Apache-2.0](LICENSE) license.
+project's [AGPL-3.0](LICENSE) license.

@@ -55,5 +55,87 @@ class MetadataCompatibilityTest(unittest.TestCase):
         self.assertEqual(meta["qgisMinimumVersion"].split(".")[0], "3")
 
 
+class FeedbackFeatureTest(unittest.TestCase):
+    """The Send feedback feature: a Web-menu action, a client POST to the
+    platform's /feedback endpoint with proper multipart text fields, and a
+    transparent system-info collector. Optional sign-in (works signed out)."""
+
+    def test_menu_action_and_handler(self):
+        src = _read("plugin.py")
+        self.assertIn("Send feedback", src)
+        self.assertIn("def open_feedback", src)
+        self.assertIn("def _system_info", src)
+
+    def test_client_posts_to_feedback_endpoint(self):
+        src = _read("geoi_client.py")
+        self.assertIn("def send_feedback", src)
+        self.assertIn('"/feedback"', src)
+        # text fields must be plain form parts (land in PHP $_POST), so a
+        # dedicated form encoder — NOT the file-only encode_multipart — is used
+        self.assertIn("def encode_multipart_form", src)
+
+    def test_feedback_uses_exec_not_exec_underscore(self):
+        # Qt6 parity: the dialog must use .exec(), never .exec_()
+        src = _read("plugin.py")
+        self.assertIn("dlg.exec()", src)
+        self.assertNotIn("dlg.exec_(", src)
+
+
+class RasterCrsForcedTest(unittest.TestCase):
+    """#552: cloud-native raster tiles are Web Mercator (EPSG:3857), FORCED.
+    There is no CRS parameter, no override, and no CRS-selection widget — a
+    non-3857 dstSRS or a CRS picker would let a user publish tiles the geoi
+    web client cannot consume."""
+
+    import re as _re
+
+    def test_raster_dst_srs_is_only_ever_3857(self):
+        src = _read("raster.py")
+        # Every dstSRS= assignment must be the TARGET_CRS constant (or the
+        # literal EPSG:3857) — never any other CRS slipped in.
+        for match in self._re.finditer(r"dstSRS\s*=\s*([^,\n)]+)", src):
+            value = match.group(1).strip()
+            self.assertIn(
+                value, ("TARGET_CRS", '"EPSG:3857"', "'EPSG:3857'"),
+                "raster.py dstSRS must be EPSG:3857/TARGET_CRS, got " + value,
+            )
+        # And the constant itself is Web Mercator.
+        self.assertIn('TARGET_CRS = "EPSG:3857"', src)
+
+    def test_publish_raster_dialog_has_no_crs_selection_widget(self):
+        src = _read("gui", "dialogs.py")
+        # Isolate the PublishRasterDialog body so the guard is scoped to it.
+        start = src.index("class PublishRasterDialog")
+        nxt = src.find("\nclass ", start + 1)
+        body = src[start: nxt if nxt != -1 else len(src)]
+        for widget in (
+            "QgsProjectionSelectionWidget",
+            "QgsProjectionSelectionTreeWidget",
+            "QgsCoordinateReferenceSystem",
+            "setCrs(",
+            "QgsCrsSelectionWidget",
+        ):
+            self.assertNotIn(widget, body,
+                             "PublishRasterDialog must not offer a CRS picker")
+        # The CRS is communicated read-only as the fixed Web Mercator label.
+        self.assertIn("EPSG:3857", body)
+        self.assertIn("fixed", body)
+
+
+class PresignedUrlNotLoggedTest(unittest.TestCase):
+    """The presigned PUT URL carries the SigV4 signature (a short-lived write
+    credential) and must never be logged verbatim — only a redacted form."""
+
+    def test_put_url_logs_redacted_url(self):
+        src = _read("geoi_client.py")
+        body = src[src.index("def put_url"):]
+        body = body[: body.find("\n    def ", 1) if body.find("\n    def ", 1) != -1 else len(body)]
+        # The raw `url` must not be handed straight to the logger.
+        self.assertNotIn('_note("PUT {} ({} bytes) -> HTTP {}".format(url,', body,
+                         "put_url must log a redacted URL, not the signed one")
+        # It strips the query string (where the signature lives) before logging.
+        self.assertIn('url.split("?", 1)[0]', body)
+
+
 if __name__ == "__main__":
     unittest.main()

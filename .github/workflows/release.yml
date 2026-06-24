@@ -1,30 +1,68 @@
 name: Release
 
+# Cuts a release automatically whenever main reaches a new version. Merging a
+# PR that bumps `version=` in geoi/metadata.txt is the ONLY step required — this
+# workflow builds the installable zip, creates the matching `v<version>` tag at
+# that commit, and publishes a GitHub Release with the zip attached.
+#
+# It is idempotent: a push to main whose version already has a Release is a
+# no-op (only a quick API check runs), so re-runs and unrelated merges never
+# double-publish. `workflow_dispatch` lets you re-run it by hand.
+
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+  workflow_dispatch: {}
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: build zip · publish GitHub release
+    name: build zip · tag · publish GitHub release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Verify the tag matches metadata.txt version
+
+      - name: Resolve version from metadata.txt
+        id: meta
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          meta="$(sed -n 's/^version=//p' geoi/metadata.txt)"
-          if [ "$tag" != "$meta" ]; then
-            echo "::error::Tag v$tag does not match metadata.txt version=$meta"; exit 1
+          version="$(sed -n 's/^version=//p' geoi/metadata.txt)"
+          if [ -z "$version" ]; then
+            echo "::error::No version= found in geoi/metadata.txt"; exit 1
           fi
-          echo "Tag matches metadata version $meta"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Release version is $version (tag v$version)"
+
+      - name: Skip if this version is already released
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.meta.outputs.tag }}" \
+               --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${{ steps.meta.outputs.tag }} already exists — nothing to do."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build installable zip
+        if: steps.gate.outputs.publish == 'true'
         run: bash scripts/package.sh
+
       - name: Publish GitHub release with the plugin zip
+        if: steps.gate.outputs.publish == 'true'
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: geoi ${{ steps.meta.outputs.tag }}
           files: dist/geoi.zip
           generate_release_notes: true
+          body: |
+            Installable QGIS plugin: **`geoi.zip`** below
+            (`Plugins → Manage and Install Plugins → Install from ZIP`).
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)
+            for the full notes for ${{ steps.meta.outputs.version }}.
