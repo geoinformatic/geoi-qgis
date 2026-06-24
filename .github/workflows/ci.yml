@@ -28,6 +28,11 @@ jobs:
             echo '::error::Use .exec() — PyQt6 (QGIS 4) removed .exec_()'; exit 1
           fi
           echo 'No Qt5-only idioms found.'
+      - name: Plugin package ships its LICENSE (required by plugins.qgis.org)
+        run: |
+          test -f geoi/LICENSE || { echo '::error::geoi/LICENSE is missing — plugins.qgis.org rejects the upload'; exit 1; }
+          cmp -s LICENSE geoi/LICENSE || { echo '::error::geoi/LICENSE differs from the root LICENSE'; exit 1; }
+          echo 'geoi/LICENSE present and matches root LICENSE.'
       - name: Unit tests (pure modules)
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Build installable zip
