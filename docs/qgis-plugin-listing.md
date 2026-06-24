@@ -2,9 +2,10 @@
 
 Ready-to-paste copy for the plugin's page on
 <https://plugins.qgis.org/> (Edit plugin → geoi). It mirrors
-`geoi/metadata.txt` so the web GUI and the uploaded ZIP stay in sync. Upload the
-`geoi.zip` built from the `v1.1.0` tag (the Release workflow attaches it), and
-update the fields below.
+`geoi/metadata.txt` so the web GUI and the uploaded ZIP stay in sync. When the
+`1.1.0` PR merges to `main`, `.github/workflows/release.yml` automatically tags
+`v1.1.0` and publishes a GitHub Release with `geoi.zip` attached — download that
+ZIP and update the fields below.
 
 ---
 
@@ -82,9 +83,9 @@ field; the licence travels in `metadata.txt` (`license=AGPL-3.0`) and `LICENSE`.
 
 ## Upload checklist
 
-1. Build/download `geoi.zip` for `v1.1.0` (top-level `geoi/` folder with
-   `metadata.txt` at its root — produced by `scripts/package.sh` and attached to
-   the GitHub Release by `.github/workflows/release.yml`).
+1. Download `geoi.zip` from the **`v1.1.0` GitHub Release** (auto-published when
+   the PR merges to `main`; top-level `geoi/` folder with `metadata.txt` at its
+   root). Or build it locally with `scripts/package.sh`.
 2. *Edit plugin → geoi* → drag in the new ZIP; QGIS reads version `1.1.0`,
    `experimental=False` and the new `about`/`tags` from `metadata.txt`.
 3. Paste the **Description**, **About** and **Tags** above if the form does not

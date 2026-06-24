@@ -235,8 +235,9 @@ cleanly in CI. The bundled PMTiles writer lives under `geoi/_vendor/pmtiles/`
 
 CI also imports the plugin under QGIS 3.28 / 3.34 / latest (Qt5 and Qt6),
 verifies the PyQGIS API the plugin relies on, exercises the publish/save
-conversion against a real in-memory layer, and runs the editing round-trip
-(`tests/e2e/`) end to end.
+conversion against a real in-memory layer, and runs the unit tests under the
+QGIS Python. The editing round-trip (`tests/e2e/`) is runnable locally with
+`bash tests/e2e/run.sh` (needs `php` and the QGIS Python).
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and our
 [Code of Conduct](CODE_OF_CONDUCT.md).
