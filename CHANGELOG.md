@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.2 — PNG icon for the QGIS Plugin Repository
+- **Ship a raster `icon.png`.** plugins.qgis.org's website stores the plugin icon
+  as a bitmap and can't process the SVG, so the upload failed with *"Upload a
+  valid image."* `metadata.txt` now points at `icon.png` (the same globe artwork,
+  rendered to a 256×256 PNG); the in-QGIS toolbar still uses the crisp SVG. CI
+  guards that the metadata icon is a real PNG. No functional changes.
+
 ## 1.1.1 — packaging fix for the QGIS Plugin Repository
 - **Ship the `LICENSE` inside the plugin package.** The QGIS Plugin Repository
   validator requires a `LICENSE` file at the root of the plugin folder; the
