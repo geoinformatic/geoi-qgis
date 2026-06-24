@@ -95,9 +95,10 @@ field; the licence travels in `metadata.txt` (`license=AGPL-3.0`) and `LICENSE`.
    auto-fill them from the ZIP.
 4. Confirm **Experimental** and **Deprecated** are unchecked, then save.
 
-> **The package must contain a `LICENSE` file at the root of the `geoi/` folder**
-> — the repository validator rejects the upload otherwise ("The form contains
-> errors"). As of `1.1.1` the build includes `geoi/LICENSE`, so this is handled.
+> **Two upload gotchas, both handled as of `1.1.2`:** (1) the package must contain
+> a `LICENSE` file at the root of the `geoi/` folder, and (2) the icon must be a
+> **raster PNG** — plugins.qgis.org's website can't store an SVG icon and rejects
+> it with *"Upload a valid image."* `metadata.txt` now points at `icon.png`.
 
 ## Automated upload (no web form)
 

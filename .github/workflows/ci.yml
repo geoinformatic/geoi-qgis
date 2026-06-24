@@ -28,6 +28,17 @@ jobs:
             echo '::error::Use .exec() — PyQt6 (QGIS 4) removed .exec_()'; exit 1
           fi
           echo 'No Qt5-only idioms found.'
+      - name: Plugin icon is a raster PNG (plugins.qgis.org rejects SVG icons)
+        run: |
+          icon="$(sed -n 's/^icon=//p' geoi/metadata.txt)"
+          case "$icon" in
+            *.png) ;;
+            *) echo "::error::metadata icon= must be a .png (plugins.qgis.org cannot store SVG); got '$icon'"; exit 1;;
+          esac
+          test -f "geoi/$icon" || { echo "::error::geoi/$icon is missing"; exit 1; }
+          python3 -c "import sys; sig=open('geoi/$icon','rb').read(8); sys.exit(0 if sig==b'\x89PNG\r\n\x1a\n' else 1)" \
+            || { echo "::error::geoi/$icon is not a valid PNG"; exit 1; }
+          echo "icon OK: $icon"
       - name: Plugin package ships its LICENSE (required by plugins.qgis.org)
         run: |
           test -f geoi/LICENSE || { echo '::error::geoi/LICENSE is missing — plugins.qgis.org rejects the upload'; exit 1; }
