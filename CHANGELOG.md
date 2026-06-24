@@ -1,22 +1,5 @@
 # Changelog
 
-## 1.1.2 — PNG icon for the QGIS Plugin Repository
-- **Ship a raster `icon.png`.** plugins.qgis.org's website stores the plugin icon
-  as a bitmap and can't process the SVG, so the upload failed with *"Upload a
-  valid image."* `metadata.txt` now points at `icon.png` (the same globe artwork,
-  rendered to a 256×256 PNG); the in-QGIS toolbar still uses the crisp SVG. CI
-  guards that the metadata icon is a real PNG. No functional changes.
-
-## 1.1.1 — packaging fix for the QGIS Plugin Repository
-- **Ship the `LICENSE` inside the plugin package.** The QGIS Plugin Repository
-  validator requires a `LICENSE` file at the root of the plugin folder; the
-  release zip now includes `geoi/LICENSE` (the AGPL-3.0 text). This unblocks
-  uploading to plugins.qgis.org. No functional or code changes.
-- **Optional auto-publish to plugins.qgis.org.** A new
-  `.github/workflows/publish-qgis-org.yml` uploads each published GitHub Release
-  to plugins.qgis.org via `qgis-plugin-ci` — opt-in, gated on an `OSGEO_PASSWORD`
-  repo secret (skips cleanly without it).
-
 ## 1.1.0 — cloud raster tiling, multi-provider sign-in, AGPL
 
 This release brings the work matured across the `0.8.0`–`0.19.0` development
@@ -61,6 +44,13 @@ existing users receive it as an update.
   sign-in window (fixes the `ERR_CONNECTION_REFUSED` on redirect).
 - **Relicensed under [AGPL-3.0](LICENSE).** The bundled PMTiles writer remains
   third-party BSD-3-Clause code (see [NOTICE](NOTICE)).
+- **Packaged for the QGIS Plugin Repository.** The plugin zip ships a `LICENSE`
+  at the package root (`geoi/LICENSE`, required by the repository) and a raster
+  `icon.png` for the website — its icon field is a bitmap `ImageField` that
+  rejects SVG ("Upload a valid image"). The crisp `icon.svg` is retained for the
+  in-QGIS toolbar. CI guards both. An opt-in workflow
+  (`.github/workflows/publish-qgis-org.yml`) can auto-publish each release to
+  plugins.qgis.org via `qgis-plugin-ci`.
 
 ## 1.0.0 — first stable release
 - First stable release on the QGIS Plugin Repository (`experimental` cleared).

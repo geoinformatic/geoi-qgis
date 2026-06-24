@@ -1,0 +1,62 @@
+name: Republish (consolidate releases)
+
+# One-shot maintenance: delete the superseded/failed release tags and publish a
+# single clean release for the current geoi/metadata.txt version, built from the
+# branch this is dispatched on (use main). Runs with the Actions token, which has
+# contents:write — so it can delete tags/releases that a local push cannot.
+#
+# Trigger: Actions → "Republish (consolidate releases)" → Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      delete_tags:
+        description: Space-separated release tags to delete first
+        required: false
+        default: "v1.1.0 v1.1.1 v1.1.2"
+
+permissions:
+  contents: write
+
+jobs:
+  republish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve target version from metadata.txt
+        id: meta
+        run: |
+          v="$(sed -n 's/^version=//p' geoi/metadata.txt)"
+          [ -n "$v" ] || { echo "::error::no version in metadata.txt"; exit 1; }
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+          echo "Target release: v$v at $GITHUB_SHA"
+
+      - name: Build the installable zip
+        run: bash scripts/package.sh
+
+      - name: Delete superseded releases + tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for t in ${{ github.event.inputs.delete_tags }} ${{ steps.meta.outputs.tag }}; do
+            echo "::group::delete $t"
+            gh release delete "$t" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || echo "  no release $t"
+            git push origin ":refs/tags/$t" 2>/dev/null || echo "  no tag $t"
+            echo "::endgroup::"
+          done
+
+      - name: Publish the single clean release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          gh release create "$tag" dist/geoi.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "geoi $tag" \
+            --generate-notes \
+            --notes "Installable QGIS plugin: **\`geoi.zip\`** below (Plugins → Manage and Install Plugins → Install from ZIP). See CHANGELOG.md for the full notes."
+          echo "Published $tag"

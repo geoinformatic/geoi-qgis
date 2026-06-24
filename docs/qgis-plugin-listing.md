@@ -85,7 +85,7 @@ field; the licence travels in `metadata.txt` (`license=AGPL-3.0`) and `LICENSE`.
 
 ## Upload checklist (manual web form)
 
-1. Download `geoi.zip` from the latest **GitHub Release** (`v1.1.1`+, auto-built
+1. Download `geoi.zip` from the latest **GitHub Release** (`v1.1.0`, auto-built
    on merge to `main`; a single top-level `geoi/` folder with `metadata.txt` and
    `LICENSE` at its root). Or build it locally with `scripts/package.sh`.
 2. *Edit plugin → geoi* (or the version-add page) → drag in the new ZIP; QGIS
@@ -95,7 +95,7 @@ field; the licence travels in `metadata.txt` (`license=AGPL-3.0`) and `LICENSE`.
    auto-fill them from the ZIP.
 4. Confirm **Experimental** and **Deprecated** are unchecked, then save.
 
-> **Two upload gotchas, both handled as of `1.1.2`:** (1) the package must contain
+> **Two upload gotchas, both handled as of `1.1.0`:** (1) the package must contain
 > a `LICENSE` file at the root of the `geoi/` folder, and (2) the icon must be a
 > **raster PNG** — plugins.qgis.org's website can't store an SVG icon and rejects
 > it with *"Upload a valid image."* `metadata.txt` now points at `icon.png`.
@@ -110,13 +110,13 @@ published GitHub Release and uploads the plugin automatically. To enable it:
    that is a maintainer of the `geoi` plugin). The workflow skips cleanly until
    the secret exists, so it never breaks CI.
 2. From then on, each release auto-publishes; you can also trigger it by hand
-   (Actions → *Publish to plugins.qgis.org* → Run workflow → tag `v1.1.1`).
+   (Actions → *Publish to plugins.qgis.org* → Run workflow → tag `v1.1.0`).
 
 To run it locally instead:
 
 ```bash
 pip install qgis-plugin-ci
-qgis-plugin-ci release v1.1.1 \
+qgis-plugin-ci release v1.1.0 \
   --osgeo-username "$OSGEO_USERNAME" --osgeo-password "$OSGEO_PASSWORD"
 ```
 
