@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.6.0 — Discover mode, groups & sharing, point-cloud 3D Tiles, unified content menus
+
+This release brings the work matured across the upstream `1.2.0`–`1.6.0`
+development series into `geoi-qgis`.
+
+- **Redesigned action bar.** The bottom buttons now sit in a cleaner,
+  consistently grouped layout.
+- **Unified content-browser menus.** Every applicable action — rename, share,
+  move to folder, copy URL, add to map, delete — now works the same way for
+  Feature Services, Web Maps, Tile Services **and** 3D-Tiles Services.
+  3D-Tiles Services gain full management (rename, share, move, copy URL) to
+  match the others.
+- **Discover mode.** Live-search geoi's publicly shared content — Feature
+  Services, Web Maps, Tile Services and 3D-Tiles Services — right alongside
+  your own content.
+- **Fixed tile-service zoom extent.** "Zoom to layer" now frames the actual
+  data when adding a Tile Service to the map (it previously used an incorrect
+  extent).
+- **Manage groups directly from QGIS.** Create, rename and delete groups, and
+  add or remove members by email.
+- **Share a Feature Service with groups.** Share with one or more groups (and
+  withdraw shares), and toggle a Feature Service editable/read-only after
+  publishing.
+- **Multi-select in the content browser.** Select several items (services,
+  web maps, tile services, 3D-Tiles services) and share them all at once with
+  a single dialog.
+- **Fixed a false "Added to map" for point-cloud 3D Tiles services.** QGIS's
+  native 3D Tiles viewer can only render mesh tilesets, so a point-cloud
+  service now points you to the deck.gl / Cesium web preview instead of
+  silently adding a layer that never renders.
+- **"Shared with me."** A section for Tile Services and 3D-Tiles Services
+  shared with you via a group, alongside your own — owner-only actions are
+  hidden on items you don't own.
+- **Open a 3D Tiles Service in the web preview** directly from its own menu
+  action (deck.gl or Cesium).
+- **Publish point clouds (LAS / LAZ / PLY)** as geoi 3D Tiles Services, with
+  per-file WGS84 reprojection or local placement, and a dedicated "3D Tiles
+  Services" category in the content browser.
+
 ## 1.1.0 — cloud raster tiling, multi-provider sign-in, AGPL
 
 This release brings the work matured across the `0.8.0`–`0.19.0` development

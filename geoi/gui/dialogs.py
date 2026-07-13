@@ -9,6 +9,8 @@ from qgis.PyQt.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -21,8 +23,10 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt
 
 from .. import settings
+from ..geoi_client import GeoiError
 
 _SB = QDialogButtonBox.StandardButton
+_UR = Qt.ItemDataRole.UserRole
 
 
 class SettingsDialog(QDialog):
@@ -225,6 +229,83 @@ class PublishRasterDialog(QDialog):
         return out
 
 
+class Tiles3dCrsChoiceDialog(QDialog):
+    """Per-file coordinate handling when publishing point clouds as 3D Tiles.
+
+    ``files_info`` is ``[{"path", "name", "crs"?}]`` — ``crs`` is the cheaply
+    pre-detected source CRS (e.g. ``"EPSG:25832"`` from a LAS/LAZ header) or
+    ``None`` when it is only resolvable at publish time. For EACH file the
+    user picks a placement (the values ``tiles3d.publish_point_cloud`` takes):
+
+      * ``"reproject"`` — reproject to WGS 84 (recommended): the tileset
+        lands at its real location on the globe;
+      * ``"local"`` — keep the original coordinates (local placement): for
+        scenes with no usable CRS.
+
+    Plus ONE overall service title (defaulting to the first file's stem).
+    ``choices()`` returns ``[{"path", "placement"}]`` in the input order.
+    Palette-aware: standard widgets only, no hardcoded colours.
+    """
+
+    PLACEMENT_REPROJECT = "reproject"
+    PLACEMENT_LOCAL = "local"
+
+    def __init__(self, files_info, default_title="3D tiles", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Publish point clouds as 3D Tiles")
+        self.setMinimumWidth(460)
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+        self._title = QLineEdit(default_title)
+        form.addRow("Service title", self._title)
+        layout.addLayout(form)
+
+        layout.addWidget(QLabel("Coordinates — choose per file"))
+        files_form = QFormLayout()
+        self._rows = []  # [(path, QComboBox)]
+        for info in files_info or []:
+            name = info.get("name") or os.path.basename(info.get("path", ""))
+            crs = info.get("crs")
+            label = QLabel("{}\n{}".format(
+                name, crs or "CRS detected at publish time"))
+            label.setWordWrap(True)
+            combo = QComboBox()
+            combo.addItem("Reproject to WGS 84 (recommended)",
+                          self.PLACEMENT_REPROJECT)
+            combo.addItem("Keep original coordinates (local placement)",
+                          self.PLACEMENT_LOCAL)
+            files_form.addRow(label, combo)
+            self._rows.append((info.get("path"), combo))
+        layout.addLayout(files_form)
+
+        hint = QLabel(
+            "Reproject puts the data at its real place on the globe. Keep "
+            "original shows it as-is at a local origin (no/unknown CRS)."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        buttons = QDialogButtonBox(_SB.Ok | _SB.Cancel)
+        buttons.button(_SB.Ok).setText("Publish")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def title(self):
+        return self._title.text().strip()
+
+    def choices(self):
+        """[{"path", "placement"}] — one entry per input file, in order."""
+        out = []
+        for path, combo in self._rows:
+            out.append({
+                "path": path,
+                "placement": combo.currentData() or self.PLACEMENT_REPROJECT,
+            })
+        return out
+
+
 class SaveProjectDialog(QDialog):
     def __init__(self, default_name="QGIS project", layers_info=None, parent=None):
         super().__init__(parent)
@@ -334,6 +415,236 @@ class ShareDialog(QDialog):
             if item.checkState() == Qt.CheckState.Checked:
                 ids.append(item.data(Qt.ItemDataRole.UserRole))
         return ids
+
+
+class ManageGroupsDialog(QDialog):
+    """Create, rename and delete groups, and add/remove members by email.
+
+    ``client`` is a :class:`GeoiClient` (live calls — group management is
+    low-frequency and small, so it runs synchronously here); ``groups`` is the
+    caller's group list (``list_groups``: ``{id, name, myRole}``). Owner-only
+    actions (rename, delete, add/remove member) are DISABLED for a group the
+    caller does not own — mirroring how ``browser_panel`` hides owner-only
+    actions on shared items. Server 403s (and any other error) surface through
+    a warning box, and the group/member lists reload after every change.
+    """
+
+    def __init__(self, client, groups, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Manage groups")
+        self.setMinimumWidth(460)
+        self._client = client
+        self._groups = list(groups or [])
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("Your groups"))
+        self._group_list = QListWidget()
+        self._group_list.currentItemChanged.connect(
+            lambda *_a: self._refresh_actions())
+        self._group_list.currentItemChanged.connect(
+            lambda *_a: self._load_members())
+        layout.addWidget(self._group_list)
+
+        group_row = QHBoxLayout()
+        self._create_btn = QPushButton("Create…")
+        self._create_btn.clicked.connect(self._create_group)
+        self._rename_btn = QPushButton("Rename…")
+        self._rename_btn.clicked.connect(self._rename_group)
+        self._delete_btn = QPushButton("Delete…")
+        self._delete_btn.clicked.connect(self._delete_group)
+        group_row.addWidget(self._create_btn)
+        group_row.addWidget(self._rename_btn)
+        group_row.addWidget(self._delete_btn)
+        layout.addLayout(group_row)
+
+        self._members_label = QLabel("Members")
+        layout.addWidget(self._members_label)
+        self._member_list = QListWidget()
+        layout.addWidget(self._member_list)
+
+        member_row = QHBoxLayout()
+        self._add_member_btn = QPushButton("Add member…")
+        self._add_member_btn.clicked.connect(self._add_member)
+        self._remove_member_btn = QPushButton("Remove member")
+        self._remove_member_btn.clicked.connect(self._remove_member)
+        member_row.addWidget(self._add_member_btn)
+        member_row.addWidget(self._remove_member_btn)
+        layout.addLayout(member_row)
+
+        buttons = QDialogButtonBox(_SB.Close)
+        buttons.rejected.connect(self.accept)
+        close_btn = buttons.button(_SB.Close)
+        if close_btn is not None:
+            close_btn.clicked.connect(self.accept)
+        layout.addWidget(buttons)
+
+        self._fill_groups()
+        self._refresh_actions()
+
+    # ------------------------------------------------------------- helpers
+    @staticmethod
+    def _is_owner(group):
+        """True when the caller owns ``group`` (``myRole == 'owner'``)."""
+        return bool(group) and str(group.get("myRole")) == "owner"
+
+    def _selected_group(self):
+        item = self._group_list.currentItem()
+        if item is None:
+            return None
+        data = item.data(_UR)
+        return data if isinstance(data, dict) else None
+
+    def _selected_member(self):
+        item = self._member_list.currentItem()
+        if item is None:
+            return None
+        data = item.data(_UR)
+        return data if isinstance(data, dict) else None
+
+    def _refresh_actions(self):
+        """Enable owner-only actions only for a group the caller owns."""
+        group = self._selected_group()
+        owner = self._is_owner(group)
+        self._rename_btn.setEnabled(owner)
+        self._delete_btn.setEnabled(owner)
+        self._add_member_btn.setEnabled(owner)
+        self._remove_member_btn.setEnabled(owner)
+
+    def _fill_groups(self, select_id=None):
+        self._group_list.clear()
+        target_row = 0
+        for i, group in enumerate(self._groups):
+            role = group.get("myRole")
+            label = group.get("name", "Group")
+            if role and role != "owner":
+                label += "  (member)"
+            item = QListWidgetItem(label)
+            item.setData(_UR, group)
+            self._group_list.addItem(item)
+            if select_id is not None and group.get("id") == select_id:
+                target_row = i
+        if self._groups:
+            self._group_list.setCurrentRow(target_row)
+        else:
+            self._member_list.clear()
+        self._refresh_actions()
+
+    def _reload_groups(self, select_id=None):
+        try:
+            self._groups = list(self._client.list_groups())
+        except GeoiError as exc:
+            self._warn(exc)
+            return
+        self._fill_groups(select_id=select_id)
+
+    def _load_members(self):
+        self._member_list.clear()
+        group = self._selected_group()
+        if not group:
+            return
+        try:
+            detail = self._client.get_group(group.get("id"))
+        except GeoiError as exc:
+            self._warn(exc)
+            return
+        # The detail's myRole is authoritative — reflect it onto the row so the
+        # owner-only gating is right even if the list was stale.
+        info = detail.get("group") if isinstance(detail, dict) else None
+        if isinstance(info, dict) and info.get("myRole") is not None:
+            group["myRole"] = info.get("myRole")
+            self._refresh_actions()
+        for member in (detail.get("members") or []):
+            role = member.get("role", "")
+            email = member.get("email") or member.get("name") or ""
+            label = "{}  ·  {}".format(email, role) if role else email
+            item = QListWidgetItem(label)
+            item.setData(_UR, member)
+            self._member_list.addItem(item)
+
+    def _warn(self, exc):
+        QMessageBox.warning(
+            self, "geoi", str(getattr(exc, "message", None) or exc))
+
+    # -------------------------------------------------------------- actions
+    def _create_group(self):
+        name, ok = QInputDialog.getText(self, "Create group", "Group name:")
+        name = (name or "").strip()
+        if not ok or not name:
+            return
+        try:
+            group = self._client.create_group(name)
+        except GeoiError as exc:
+            return self._warn(exc)
+        self._reload_groups(select_id=(group or {}).get("id"))
+
+    def _rename_group(self):
+        group = self._selected_group()
+        if not self._is_owner(group):
+            return
+        name, ok = QInputDialog.getText(
+            self, "Rename group", "New name:", text=group.get("name", ""))
+        name = (name or "").strip()
+        if not ok or not name:
+            return
+        try:
+            self._client.rename_group(group.get("id"), name)
+        except GeoiError as exc:
+            return self._warn(exc)
+        self._reload_groups(select_id=group.get("id"))
+
+    def _delete_group(self):
+        group = self._selected_group()
+        if not self._is_owner(group):
+            return
+        if QMessageBox.question(
+            self, "Delete group",
+            "Delete group '{}'? This cannot be undone.".format(
+                group.get("name", "")),
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._client.delete_group(group.get("id"))
+        except GeoiError as exc:
+            return self._warn(exc)
+        self._reload_groups()
+
+    def _add_member(self):
+        group = self._selected_group()
+        if not self._is_owner(group):
+            return
+        email, ok = QInputDialog.getText(
+            self, "Add member", "Member's email address:")
+        email = (email or "").strip()
+        if not ok or not email:
+            return
+        try:
+            self._client.add_group_member(group.get("id"), email)
+        except GeoiError as exc:
+            return self._warn(exc)
+        self._load_members()
+
+    def _remove_member(self):
+        group = self._selected_group()
+        if not self._is_owner(group):
+            return
+        member = self._selected_member()
+        if not member:
+            return
+        uid = member.get("userId")
+        if uid in (None, ""):
+            return
+        if QMessageBox.question(
+            self, "Remove member",
+            "Remove {} from '{}'?".format(
+                member.get("email") or member.get("name") or "this member",
+                group.get("name", "")),
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._client.remove_group_member(group.get("id"), uid)
+        except GeoiError as exc:
+            return self._warn(exc)
+        self._load_members()
 
 
 class MoveToFolderDialog(QDialog):

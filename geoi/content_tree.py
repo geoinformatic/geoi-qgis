@@ -7,24 +7,31 @@ QGIS install. The browser panel renders whatever this returns.
 Node shapes:
 
   folder    {"kind": "folder", "id", "title", "parentId", "children": [...]}
-  category  {"kind": "category", "category": "feature"|"tile",
+  category  {"kind": "category", "category": "feature"|"tile"|"tiles3d",
              "title", "children": [...]}
   service   {"kind": "service", "payload": <service entry>}
   project   {"kind": "project", "payload": <project summary>}
   tile      {"kind": "tile", "payload": <tile-service summary>}
+  tiles3d   {"kind": "tiles3d", "payload": <3D-Tiles-service summary>}
+  shared    {"kind": "shared", "title": "Shared with me", "children": [...]}
+
+A leaf node carries ``"shared": True`` when it belongs to the "Shared with me"
+section — content the signed-in user may CONSUME (added to the map) but does
+NOT own, so the browser panel shows it read-only (no rename / move / delete).
 
 The tree is STRUCTURED into clear, symmetrical categories: at every level
 (the root AND inside each folder) the content is grouped under labelled
 category buckets — **Feature Services** (feature services), **Web Maps**
-(saved geoi projects) and **Tile Services** (raster tile services) — so the
-three kinds of content are always cleanly separated and the structure looks
-the same everywhere.
+(saved geoi projects), **Tile Services** (raster tile services) and
+**3D Tiles Services** (OGC 3D Tiles) — so the kinds of content are always
+cleanly separated and the structure looks the same everywhere.
 
 A level is ordered folders-first (by title), then **Feature Services**, then
-**Web Maps**, then **Tile Services**. A folder can hold all three. Items whose
-``folderId`` is unknown sit at the root, so an item in a since-deleted folder
-is never lost from the view. A category bucket is only emitted when it has
-content, so empty buckets never clutter a folder.
+**Web Maps**, then **Tile Services**, then **3D Tiles Services**. A folder
+can hold all of them. Items whose ``folderId`` is unknown sit at the root, so
+an item in a since-deleted folder is never lost from the view. A category
+bucket is only emitted when it has content, so empty buckets never clutter a
+folder.
 """
 
 # Category metadata: order + display title for each item kind's bucket. A
@@ -34,9 +41,11 @@ _CATEGORIES = (
     ("feature", "Feature Services"),
     ("project", "Web Maps"),
     ("tile", "Tile Services"),
+    ("tiles3d", "3D Tiles Services"),
 )
 # Which category each item kind belongs to.
-_KIND_CATEGORY = {"service": "feature", "project": "project", "tile": "tile"}
+_KIND_CATEGORY = {"service": "feature", "project": "project", "tile": "tile",
+                  "tiles3d": "tiles3d"}
 
 
 def _title(entry):
@@ -56,7 +65,8 @@ def _owned(items, owner_id):
     return out
 
 
-def build_content_tree(folders, services, projects, owner_id=None, tiles=None):
+def build_content_tree(folders, services, projects, owner_id=None, tiles=None,
+                       tiles3d=None, shared_tiles=None, shared_tiles3d=None):
     """Return the root-level list of nodes for the content tree.
 
     ``owner_id`` (the signed-in user's id) restricts services and projects
@@ -68,11 +78,25 @@ def build_content_tree(folders, services, projects, owner_id=None, tiles=None):
     now, so they live in folders alongside feature services and are grouped
     under each level's **Tile Services** category. They already come back
     owner-scoped from ``/raster/services``.
+
+    ``tiles3d`` (the user's published 3D TILES SERVICES, from
+    ``/tiles3d/services``) follow the exact same rules as ``tiles``:
+    owner-scoped by the server, folder-aware when the summary carries a
+    ``folderId``, grouped under each level's **3D Tiles Services** category.
+
+    ``shared_tiles`` / ``shared_tiles3d`` (from the ``?scope=shared`` endpoints,
+    #981) are tile / 3D-Tiles services shared WITH the signed-in user via a
+    group — content they can consume but do NOT own. They are grouped under a
+    single **Shared with me** section appended at the root end, kept DISTINCT
+    from the user's own folders/categories (a shared item never lands in a
+    folder, and is flagged ``"shared": True`` so the panel shows it read-only).
+    The section is omitted entirely when there is nothing shared.
     """
     folders = list(folders or [])
     services = _owned(services or [], owner_id)
     projects = _owned(projects or [], owner_id)
     tiles = list(tiles or [])
+    tiles3d = list(tiles3d or [])
 
     known = {f.get("id") for f in folders}
 
@@ -110,20 +134,51 @@ def build_content_tree(folders, services, projects, owner_id=None, tiles=None):
     place(services, "service")
     place(projects, "project")
     place(tiles, "tile")
+    place(tiles3d, "tiles3d")
 
     # Sort folders (recursively) and group their items into categories.
     roots.sort(key=lambda n: n["title"].lower())
     for node in roots:
         _finalize_folder(node)
 
-    # Root level: folders first, then the category buckets (in category order).
-    return roots + _categorize(root_items)
+    # Root level: folders first, then the category buckets (in category order),
+    # then — LAST — the "Shared with me" section (when any content is shared).
+    root = roots + _categorize(root_items)
+    shared = _shared_section(shared_tiles, shared_tiles3d)
+    if shared is not None:
+        root.append(shared)
+    return root
+
+
+def _shared_section(shared_tiles, shared_tiles3d):
+    """The "Shared with me" root section grouping tile + 3D-Tiles services
+    shared WITH the viewer via a group (#981), or None when nothing is shared.
+
+    Reuses the same category buckets (**Tile Services**, **3D Tiles Services**)
+    as the owned tree, so shared content reads identically — only its top-level
+    home differs. Each leaf carries ``"shared": True`` so the browser panel
+    renders it read-only (the viewer may open it, never rename/move/delete it).
+    """
+    items = []
+    for tile in (shared_tiles or []):
+        items.append({"kind": "tile", "payload": tile, "shared": True})
+    for t3d in (shared_tiles3d or []):
+        items.append({"kind": "tiles3d", "payload": t3d, "shared": True})
+    if not items:
+        return None
+
+    return {
+        "kind": "shared",
+        "title": "Shared with me",
+        "children": _categorize(items),
+    }
 
 
 def _finalize_folder(node):
     """Sort sub-folders, group this folder's items into category buckets, and
     splice them after the (sorted) sub-folders so the children read
-    folders → Feature Services → Web Maps → Tile Services."""
+    folders → Feature Services → Web Maps → Tile Services → 3D Tiles
+    Services."""
     subfolders = sorted(
         (c for c in node["children"] if c["kind"] == "folder"),
         key=lambda n: n["title"].lower(),
@@ -162,4 +217,4 @@ def _categorize(items):
 
 
 # Each category holds a single kind now, so the per-kind order is flat.
-_ITEM_ORDER = {"service": 0, "project": 0, "tile": 0}
+_ITEM_ORDER = {"service": 0, "project": 0, "tile": 0, "tiles3d": 0}

@@ -3,9 +3,11 @@
 <p align="center">
   Connect QGIS to a <a href="https://geoi.de">geoi</a> platform —
   <strong>sign in</strong> (Google, Apple, Microsoft or ArcGIS), <strong>browse</strong>
-  your services and projects, <strong>add</strong> your services as native
-  layers, <strong>publish</strong> or <strong>save</strong> QGIS projects, and
-  <strong>publish raster as cloud-native tiles</strong> back to geoi.
+  your services and projects (and <strong>discover</strong> public content),
+  <strong>add</strong> your services as native layers, <strong>publish</strong>
+  or <strong>save</strong> QGIS projects, <strong>publish raster as
+  cloud-native tiles</strong>, and <strong>publish point clouds as 3D
+  Tiles</strong> back to geoi.
 </p>
 
 <p align="center">
@@ -31,11 +33,17 @@ tasks), and works across QGIS versions (**3.22 LTR → latest, Qt5 and Qt6**).
   nothing hardcoded); pick one and you're in. No OAuth client to create, no
   settings. The 30-day session token is stored **encrypted** in the QGIS
   authentication database (`QgsAuthManager`), never in plain text.
-- **Browse your own content** (services, projects, tile services) in a dockable
-  panel, organised by your **folder hierarchy** (sub-folders and all) and by kind
-  (Feature Services / Web Maps / Tile Services). You only ever see content you
-  own — never other people's public or group-shared items. The account row shows
-  your **storage usage** at a glance.
+- **Browse your own content** (services, projects, tile services, 3D-Tiles
+  services) in a dockable panel, organised by your **folder hierarchy**
+  (sub-folders and all) and by kind (Feature Services / Web Maps / Tile
+  Services / 3D-Tiles Services). The account row shows your **storage usage**
+  at a glance.
+- **Discover** — switch the panel to Discover mode to live-search geoi's
+  publicly shared content (Feature Services, Web Maps, Tile Services and
+  3D-Tiles Services) right alongside your own.
+- **Shared with me** — Tile Services and 3D-Tiles Services shared with you via
+  a group show up alongside your own; owner-only actions (rename, share,
+  move, delete) are hidden on items you don't own.
 - **Add a service** — double-click → it's added via QGIS's ArcGIS Feature
   Service provider (server-side query / paging / BBOX; nothing is bulk-downloaded),
   **in the service's own CRS** so editing round-trips correctly and the map
@@ -50,8 +58,17 @@ tasks), and works across QGIS versions (**3.22 LTR → latest, Qt5 and Qt6**).
   to *Move to folder…*, to **create / rename / delete** folders, and to
   **delete** a service or project.
 - **Share** — right-click → *Share…* to set a service's or project's visibility
-  (private / a group / public) and pick which of your groups it's shared with.
-  *Copy service URL* hands the FeatureServer URL to ArcGIS / Field Maps.
+  (private / a group / public) and pick which of your groups it's shared with;
+  withdraw a group share at any time. A published Feature Service can be
+  toggled **editable / read-only** after the fact. *Copy service URL* hands the
+  FeatureServer URL to ArcGIS / Field Maps. Unified menus mean rename, share,
+  move, copy URL and delete work the same way for every content type,
+  including 3D-Tiles Services.
+- **Multi-select and share several items at once** — select multiple items
+  (services, web maps, tile services, 3D-Tiles services) in the content
+  browser and share them all in a single dialog.
+- **Manage groups** — create, rename and delete groups, and add or remove
+  members by email, directly from the plugin.
 - **Publish a project** as a geoi Feature Service, choosing its **visibility**
   (private, shared with a group, or public) and whether its features are
   **editable**.
@@ -68,6 +85,14 @@ tasks), and works across QGIS versions (**3.22 LTR → latest, Qt5 and Qt6**).
   and cancel** in the QGIS task manager. Needs **GDAL ≥ 3.8** (bundled with
   QGIS); the **PMTiles writer is bundled** — it works out of the box, and a
   native `pmtiles` CLI is used automatically if present (faster).
+- **Publish point clouds as 3D Tiles** — publish **LAS / LAZ / PLY** point
+  clouds as geoi **3D Tiles Services**, choosing per file whether to reproject
+  to WGS 84 or keep the original coordinates (local placement); a dedicated
+  **3D Tiles Services** category in the content browser lets you add a service
+  to the map as a native 3D Tiles layer (QGIS 3.34+), copy its tileset URL, or
+  open it in the **deck.gl** or **Cesium** web preview. Point-cloud tilesets
+  can't be rendered by QGIS's native 3D Tiles viewer (mesh-only), so adding one
+  to the map points you to the web preview instead of a blank layer.
 
 ## Install
 
@@ -116,15 +141,22 @@ nothing else to set up.
 
 3. **Browse your content.** The tree lists **your** services and projects,
    organised by your folder hierarchy and grouped into **Feature Services**,
-   **Web Maps** and **Tile Services**, with each item's visibility shown. Expand
-   folders to drill in; click **Refresh** to reload from the platform.
+   **Web Maps**, **Tile Services** and **3D-Tiles Services**, with each item's
+   visibility shown. A **Shared with me** section lists Tile Services and
+   3D-Tiles Services a group has shared with you. Expand folders to drill in;
+   click **Refresh** to reload from the platform. Switch to **Discover** mode
+   to live-search geoi's publicly shared content instead of your own.
 
 4. **Add a service to the map.** **Double-click** a service (or select it and
    click **Add to map**). A **feature service** is added through QGIS's native
    **ArcGIS Feature Service** provider, in the service's own CRS, and the map
-   zooms to it; a **tile service** is added as a **WMTS** layer; a **web map**
-   opens in the geoi web app. Features are queried server-side — nothing is
-   bulk-downloaded — and private services authenticate automatically.
+   zooms to it; a **tile service** is added as a **WMTS** layer, correctly
+   zoomed to its extent; a **3D-Tiles service** is added as a native 3D Tiles
+   layer (QGIS 3.34+); a **web map** opens in the geoi web app. A point-cloud
+   3D-Tiles service can't be rendered by QGIS's native viewer (mesh-only), so
+   it instead points you to the **deck.gl** / **Cesium** web preview. Features
+   are queried server-side — nothing is bulk-downloaded — and private services
+   authenticate automatically.
 
 5. **Edit and save back.** If the service is **editable**, toggle editing in
    QGIS, change geometry or attributes, and use **Save Layer Edits** — your
@@ -143,20 +175,28 @@ nothing else to set up.
    storage via a presigned URL — your bearer is never sent off-site — with live
    **progress** in the task manager and a **Cancel** button that aborts cleanly.
 
-8. **Save the project to geoi.** Click **Save to geoi…** to store the current
+8. **Publish point clouds as 3D Tiles.** Click **Publish as 3D Tiles Service
+   (point cloud)**, pick one or more **LAS / LAZ / PLY** files, and choose per
+   file whether to reproject to **WGS 84** (recommended) or keep the original
+   local coordinates. The first file creates the service; further files are
+   added to the same service.
+
+9. **Save the project to geoi.** Click **Save to geoi…** to store the current
    project as a geoi project ("geoi package"). Your **symbology** (single /
    categorized / graduated), **labels**, opacity, outline and layer names are
    carried over, so it re-opens looking the same in the geoi web app and in this
    plugin.
 
-9. **Organise, rename, share.** Drag an item onto a folder to move it; press
-   **F2** (or click an already-selected row) to rename inline; **New folder**
-   creates one. Right-click any item for **Share…** (visibility and groups),
-   **Move to folder…**, **Copy service URL** (for ArcGIS / Field Maps), **Open
-   geoi web app**, or **Delete**. Published **tile services** can likewise be
-   renamed, moved, shared, have their visibility changed, or deleted.
+10. **Organise, rename, share.** Drag an item onto a folder to move it; press
+    **F2** (or click an already-selected row) to rename inline; **New folder**
+    creates one. Right-click any item — any content type — for **Share…**
+    (visibility and groups; toggle a Feature Service **editable / read-only**),
+    **Move to folder…**, **Copy URL**, **Open in geoi web app**, or **Delete**.
+    Select **multiple items** and share them all at once with a single
+    dialog. Manage your **groups** (create, rename, delete, add/remove members
+    by email) from the panel.
 
-10. **Sign out.** Click **Sign out** to remove the stored token from the QGIS
+11. **Sign out.** Click **Sign out** to remove the stored token from the QGIS
     authentication database.
 
 For how sign-in works under the hood and the exact REST calls, see
@@ -187,10 +227,15 @@ All calls go to `<platform>/platform/…`, exactly like the geoi web app:
 |---|---|
 | Sign in | browser → `…/desktop-signin.html` (reuses the web sign-in: Google / Apple / Microsoft / ArcGIS) → 30-day bearer via loopback |
 | Browse | `GET /hub/services`, `/hub/projects`, `/hub/folders`, `/hub/groups` |
+| Discover | `GET /hub/discover?…` (public content search, no sign-in required) |
 | Add service | `…/rest/services/<name>/FeatureServer` via the ArcGIS provider |
 | Publish | `POST /hub/services` (multipart GeoJSON), then visibility / editable + group share |
+| Editable toggle | `POST /hub/services/<name> {editable}` |
+| Share / unshare | `POST` / `DELETE /hub/services/<name>/shares[/<groupId>]` (and the `/raster/services/…` and `/tiles3d/services/…` equivalents for Tile and 3D-Tiles services) |
+| Groups | `GET /hub/groups` · `POST /hub/groups` · `POST` / `DELETE /hub/groups/<id>/members[/<uid>]` |
 | Save project | `POST /hub/projects {name, data}` |
 | Publish raster | `POST /raster/presign {name, bytes}` → `PUT <presigned object-store URL>` (no bearer) → `POST /raster/confirm {objectKey, bytes, bounds}` |
+| Publish 3D Tiles | `POST /tiles3d/create` (multipart tileset ZIP, or an encoded point-cloud tileset) |
 | Move | `POST /hub/services/<name> {folderId}` · `POST /hub/projects/<id> {folderId}` |
 | Folders | `POST /hub/folders` · `POST /hub/folders/<id>` · `DELETE /hub/folders/<id>` |
 | Delete | `DELETE /hub/services/<name>` · `DELETE /hub/projects/<id>` |
@@ -228,10 +273,11 @@ scripts/package.sh        # → dist/geoi.zip
 ```
 
 The pure modules (`geoi_client.py`, `convert.py`, `auth.py`, `content_tree.py`,
-`raster.py`, `style.py`) import nothing from QGIS and carry the testable logic;
-QGIS is imported lazily inside the GUI / adapter code so the package imports
-cleanly in CI. The bundled PMTiles writer lives under `geoi/_vendor/pmtiles/`
-(third-party, shipped verbatim — excluded from our lint).
+`raster.py`, `style.py`, `pointcloud.py`, `tiles3d.py`, `tiles3d_encoder.py`)
+import nothing from QGIS and carry the testable logic; QGIS is imported lazily
+inside the GUI / adapter code so the package imports cleanly in CI. The
+bundled PMTiles writer lives under `geoi/_vendor/pmtiles/` (third-party,
+shipped verbatim — excluded from our lint).
 
 CI also imports the plugin under QGIS 3.28 / 3.34 / latest (Qt5 and Qt6),
 verifies the PyQGIS API the plugin relies on, exercises the publish/save

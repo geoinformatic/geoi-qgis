@@ -73,7 +73,8 @@ jobs:
           python3 -c "import sys; sys.path.insert(0, '.'); \
             import geoi.plugin, geoi.gui.browser_panel, geoi.gui.dialogs, \
                    geoi.tasks, geoi.settings, geoi.auth, geoi.convert, geoi.geoi_client, \
-                   geoi.content_tree, geoi.style, geoi.raster; \
+                   geoi.content_tree, geoi.style, geoi.raster, geoi.pointcloud, \
+                   geoi.tiles3d, geoi.tiles3d_encoder; \
             print('plugin imports OK under', __import__('qgis.core', fromlist=['Qgis']).Qgis.QGIS_VERSION)"
       - name: Verify the PyQGIS API the plugin calls actually exists
         run: |
