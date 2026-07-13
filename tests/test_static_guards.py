@@ -30,29 +30,61 @@ class CrsRegressionTest(unittest.TestCase):
         self.assertIn(".refresh()", src)
 
 
+def _meta():
+    out = {}
+    for line in _read("metadata.txt").splitlines():
+        if "=" in line and not line.strip().startswith("#"):
+            key, _, value = line.partition("=")
+            out[key.strip()] = value.strip()
+    return out
+
+
 class MetadataCompatibilityTest(unittest.TestCase):
     """Without qgisMaximumVersion, QGIS caps the supported range at 3.99 and
     refuses to load the plugin on QGIS 4.x ("incompatible with this version of
     QGIS"). The plugin must declare it works on QGIS 3 AND 4."""
 
-    def _meta(self):
-        out = {}
-        for line in _read("metadata.txt").splitlines():
-            if "=" in line and not line.strip().startswith("#"):
-                key, _, value = line.partition("=")
-                out[key.strip()] = value.strip()
-        return out
-
     def test_declares_qgis4_maximum(self):
-        meta = self._meta()
+        meta = _meta()
         self.assertIn("qgisMaximumVersion", meta)
         major = int(meta["qgisMaximumVersion"].split(".")[0])
         self.assertGreaterEqual(major, 4, "must support QGIS 4.x")
 
     def test_minimum_is_qgis3(self):
-        meta = self._meta()
+        meta = _meta()
         self.assertIn("qgisMinimumVersion", meta)
         self.assertEqual(meta["qgisMinimumVersion"].split(".")[0], "3")
+
+
+class MetadataPackagingTest(unittest.TestCase):
+    """Vendor drops from the upstream `geoi` project ship a metadata.txt whose
+    homepage/tracker/repository point at github.com/geoinformatic/geoi (a
+    different, not publicly reachable repo) and whose icon/license fields
+    drop this repo's plugins.qgis.org packaging fixes. Merging a vendor drop
+    verbatim makes plugins.qgis.org reject the upload with "Please provide
+    valid url link for the following key(s) in the metadata source: tracker,
+    repository. The website(s) cannot be reached within 10 seconds." Lock the
+    geoi-qgis-specific overrides in so a future vendor-drop merge can't lose
+    them silently."""
+
+    def test_tracker_and_repository_point_at_geoi_qgis(self):
+        meta = _meta()
+        for key in ("homepage", "tracker", "repository"):
+            self.assertIn(key, meta)
+            self.assertIn(
+                "github.com/geoinformatic/geoi-qgis", meta[key],
+                "{}= must point at geoi-qgis, not the upstream geoi repo (got {!r})"
+                .format(key, meta[key]),
+            )
+
+    def test_icon_is_the_packaged_png(self):
+        meta = _meta()
+        msg = "plugins.qgis.org rejects SVG icons — see icon= in metadata.txt"
+        self.assertEqual(meta.get("icon"), "icon.png", msg)
+
+    def test_license_field_present(self):
+        meta = _meta()
+        self.assertEqual(meta.get("license"), "AGPL-3.0")
 
 
 class FeedbackFeatureTest(unittest.TestCase):

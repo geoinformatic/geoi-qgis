@@ -262,13 +262,14 @@ def _bare_plugin():
     # opaque modules so plugin's `from .gui... import ...` succeeds.
     for name, names in (
         ("geoi.gui.browser_panel", ["GeoiPanel"]),
-        ("geoi.gui.dialogs", ["FeedbackDialog", "MoveToFolderDialog",
-                              "PublishDialog", "PublishRasterDialog",
-                              "SaveProjectDialog", "SettingsDialog",
-                              "ShareDialog"]),
+        ("geoi.gui.dialogs", ["FeedbackDialog", "ManageGroupsDialog",
+                              "MoveToFolderDialog", "PublishDialog",
+                              "PublishRasterDialog", "SaveProjectDialog",
+                              "SettingsDialog", "ShareDialog"]),
         ("geoi.auth", ["SessionStore"]),
-        ("geoi.tasks", ["ActionTask", "CatalogTask", "PublishTask",
-                        "RasterPublishTask", "SaveProjectTask", "SignInTask"]),
+        ("geoi.tasks", ["ActionTask", "CatalogTask", "DiscoverTask",
+                        "PublishTask", "RasterPublishTask", "SaveProjectTask",
+                        "SignInTask", "Tiles3dPublishTask"]),
     ):
         m = types.ModuleType(name)
         for n in names:

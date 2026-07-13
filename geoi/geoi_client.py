@@ -125,6 +125,54 @@ def friendly_error(exc):
     )
 
 
+# Friendly, actionable text for the 3D-Tiles publish error CODES the platform
+# emits (api/tiles3d.php). Same discipline as RASTER_ERROR_MESSAGES: the client
+# keys off the stable `error` CODE, never the server's English wording.
+TILES3D_ERROR_MESSAGES = {
+    "feature_off": (
+        "3D Tiles publishing isn't enabled on this geoi server yet — ask your "
+        "administrator to turn it on (Account → Administration → 3D Tiles)."
+    ),
+    "quota_exceeded": (
+        "Your 3D Tiles storage quota is full. Delete an old tileset and try "
+        "again."
+    ),
+    "unauthorized": "Please sign in to geoi first, then retry.",
+    "too_large": (
+        "The tileset archive is larger than this server allows. Publish a "
+        "smaller tileset."
+    ),
+    "invalid_tileset": (
+        "That ZIP isn't a valid 3D Tiles tileset — it needs a root "
+        "tileset.json (with asset.version) plus its .glb / .pnts tiles."
+    ),
+    "invalid_archive": "The file is not a valid ZIP archive.",
+    "zip_slip": "The archive contains an illegal file path and was rejected.",
+    "bad_extension": (
+        "The archive contains a disallowed file type — a 3D Tiles ZIP may only "
+        "hold .json, .glb and .pnts files."
+    ),
+    "rate_limited": "Too many uploads just now — wait a minute and try again.",
+    "bad_request": "The server rejected the upload request.",
+}
+
+
+def tiles3d_friendly_error(exc):
+    """Map a 3D-Tiles publish error CODE to a clear, actionable sentence.
+
+    Prefers the 3D-Tiles map, then the raster map (shared codes like
+    ``quota_exceeded`` / ``unauthorized`` read the same), then the server's own
+    message, then the bare string — so an unmapped code degrades gracefully.
+    """
+    code = getattr(exc, "code", None)
+    return (
+        TILES3D_ERROR_MESSAGES.get(code)
+        or RASTER_ERROR_MESSAGES.get(code)
+        or getattr(exc, "message", None)
+        or str(exc)
+    )
+
+
 def normalize_base(base_url):
     """Trim and default a base URL; assume https when no scheme is given."""
     base = (base_url or DEFAULT_BASE_URL).strip().rstrip("/")
@@ -199,6 +247,88 @@ class GeoiClient:
 
     def list_groups(self, timeout=None):
         return self._request("GET", "/hub/groups", timeout=timeout).get("groups", [])
+
+    # ------------------------------------------------------------- discover
+    def discover(self, q="", kind="all", limit=25, offset=0, timeout=None):
+        """Search geoi's PUBLIC content (#discover).
+
+        ``GET /hub/discover?q=&kind=&limit=&offset=`` -> ``{ok, q, kind,
+        results:{services, projects, tiles, tiles3d}}`` where each row is that
+        registry's existing list-row shape plus ``visibility:'public'`` and an
+        ``ownerName``. Returns the normalised ``{services, projects, tiles,
+        tiles3d}`` dict, FAIL-SOFT: any transport / server error or a missing /
+        malformed bucket degrades to an empty list per kind (so a public search
+        never breaks the panel). ``timeout`` bounds the call for the off-thread
+        ``DiscoverTask``.
+        """
+        params = urllib.parse.urlencode({
+            "q": q or "",
+            "kind": kind or "all",
+            "limit": int(limit),
+            "offset": int(offset),
+        })
+        try:
+            res = self._request("GET", "/hub/discover?" + params, timeout=timeout)
+        except GeoiError:
+            res = {}
+        results = res.get("results") if isinstance(res, dict) else None
+        if not isinstance(results, dict):
+            results = {}
+        out = {}
+        for key in ("services", "projects", "tiles", "tiles3d"):
+            rows = results.get(key)
+            out[key] = rows if isinstance(rows, list) else []
+        return out
+
+    # ---------------------------------------------------------- manage groups
+    def _group_path(self, group_id, *suffix):
+        path = "/hub/groups/" + urllib.parse.quote(str(group_id), safe="")
+        for part in suffix:
+            path += "/" + str(part)
+        return path
+
+    def create_group(self, name):
+        """Create a group (``POST /hub/groups {name}`` -> ``{group}``). The
+        caller becomes the group owner. Returns the created group dict."""
+        res = self._request("POST", "/hub/groups", json_body={"name": name})
+        return res.get("group", {}) if isinstance(res, dict) else {}
+
+    def rename_group(self, group_id, name):
+        """Rename a group — owner only (``POST /hub/groups/<id> {name}`` ->
+        ``{group}``). A 403 is raised for a non-owner."""
+        res = self._request(
+            "POST", self._group_path(group_id), json_body={"name": name})
+        return res.get("group", {}) if isinstance(res, dict) else {}
+
+    def delete_group(self, group_id):
+        """Delete a group — owner only (``DELETE /hub/groups/<id>`` ->
+        ``{ok, deleted}``). Returns ``True``."""
+        self._request("DELETE", self._group_path(group_id))
+        return True
+
+    def get_group(self, group_id):
+        """Group summary + members (``GET /hub/groups/<id>`` -> ``{group:
+        {…, myRole}, members: [{userId, email, name, role}]}``). Member-only;
+        the caller's ``group.myRole`` gates the owner-only actions in the UI."""
+        res = self._request("GET", self._group_path(group_id))
+        return res if isinstance(res, dict) else {}
+
+    def add_group_member(self, group_id, email):
+        """Add a member by email — owner only (``POST /hub/groups/<id>/members
+        {email}`` -> ``{members}``). Returns the updated member list. A 404 is
+        raised when no account exists for that email, a 403 for a non-owner."""
+        res = self._request(
+            "POST", self._group_path(group_id, "members"),
+            json_body={"email": email})
+        return res.get("members", []) if isinstance(res, dict) else []
+
+    def remove_group_member(self, group_id, uid):
+        """Remove a member by user id — owner (or the member themselves) only
+        (``DELETE /hub/groups/<id>/members/<uid>`` -> ``{members}``). Returns
+        the updated member list."""
+        res = self._request(
+            "DELETE", self._group_path(group_id, "members", int(uid)))
+        return res.get("members", []) if isinstance(res, dict) else []
 
     def storage(self, timeout=None):
         """The signed-in user's storage usage (#677).
@@ -448,6 +578,21 @@ class GeoiClient:
         services = res.get("services") if isinstance(res, dict) else None
         return services if isinstance(services, list) else []
 
+    def shared_tile_services(self, timeout=None):
+        """List raster TILE SERVICES shared WITH the signed-in user via a group
+        (#981) — ``GET /raster/services?scope=shared`` -> ``{services: [...]}``.
+
+        Same list-row shape as :meth:`tile_services` (so the tree renders both
+        with one path), but these are services the user may CONSUME, not own.
+        OPTIONAL fail-soft context — ``timeout`` keeps a slow/missing endpoint
+        from stalling the content load, and a non-list result yields ``[]``.
+        """
+        res = self._request(
+            "GET", "/raster/services?scope=shared", timeout=timeout
+        )
+        services = res.get("services") if isinstance(res, dict) else None
+        return services if isinstance(services, list) else []
+
     def tile_service(self, service_id):
         """Detail for one tile service, incl. the per-format URLs (P4).
 
@@ -483,6 +628,24 @@ class GeoiClient:
             json_body={"visibility": visibility},
         )
         return res.get("service", {}) if isinstance(res, dict) else {}
+
+    def share_tile_service_with_group(self, service_id, group_id):
+        """Share a ``groups`` tile service with a group — ``POST
+        /raster/services/<id>/shares {groupId}`` -> ``{ok, service}``."""
+        res = self._request(
+            "POST", self._tile_path(service_id) + "/shares",
+            json_body={"groupId": group_id},
+        )
+        return res.get("service", {}) if isinstance(res, dict) else {}
+
+    def unshare_tile_service_group(self, service_id, group_id):
+        """Revoke a tile service's share with a group — ``DELETE
+        /raster/services/<id>/shares/<groupId>`` -> ``{ok}``."""
+        self._request(
+            "DELETE",
+            self._tile_path(service_id) + "/shares/" + str(int(group_id)),
+        )
+        return True
 
     def move_tile_service(self, service_id, folder_id):
         """Move a tile service into a folder (a ``content_folders`` id) or to
@@ -545,6 +708,242 @@ class GeoiClient:
             if built:
                 out[fmt] = built
         return out
+
+    # ------------------------------------------------------- 3D Tiles services
+    def tiles3d_create(self, zip_path_or_bytes, title="", filename=None,
+                       bounds=None):
+        """Publish a PREPARED 3D Tiles tileset ZIP as an OGC 3D Tiles service.
+
+        ``POST /tiles3d/create`` — ONE multipart upload: the file part
+        ``archive`` carries the ZIP (root ``tileset.json`` + ``*.glb`` /
+        ``*.pnts`` tiles) and ``title`` is a plain form field. The geoi bearer
+        rides (the endpoint is owner-only). Returns the created service dict
+        ``{id, title, urls:{tileset}}``; a quota breach is a 413 →
+        ``quota_exceeded``. The plugin does NOT prepare tiles — the ZIP is
+        produced by the geoi app's "3D Tiles (.zip)" export, py3dtiles, or any
+        tiler. ``zip_path_or_bytes`` is a filesystem path or raw ZIP bytes.
+        ``bounds`` (optional WGS84 ``[minx, miny, maxx, maxy]``) rides as a
+        plain JSON form field (``tiles3d_read_bounds_param`` server-side) —
+        the point-cloud lane feature-detects this kwarg and passes the
+        cloud's georeferenced bounds through it.
+        """
+        if isinstance(zip_path_or_bytes, (bytes, bytearray)):
+            data = bytes(zip_path_or_bytes)
+            name = filename or "tileset.zip"
+        else:
+            with open(zip_path_or_bytes, "rb") as handle:
+                data = handle.read()
+            name = filename or os.path.basename(zip_path_or_bytes) or "tileset.zip"
+        # `title` is a plain form field ($_POST); `archive` is the file part
+        # ($_FILES) — exactly the field name api/tiles3d.php reads.
+        fields = {"title": title or ""}
+        if bounds is not None:
+            fields["bounds"] = json.dumps(bounds)
+        body, ctype = encode_multipart_form(
+            fields,
+            {"archive": (name, data, "application/zip")},
+        )
+        res = self._request("POST", "/tiles3d/create", raw_body=body, content_type=ctype)
+        svc = res.get("service") if isinstance(res, dict) else None
+        if not isinstance(svc, dict) or svc.get("id") in (None, ""):
+            # 2xx with no `service` must NOT be treated as a successful publish.
+            raise GeoiError(
+                "The server accepted the upload but did not create a 3D "
+                "tileset. Response: " + _short(res)
+            )
+        return svc
+
+    def tiles3d_add(self, service_id, zip_bytes, filename="tileset.zip",
+                    bounds=None, timeout=None):
+        """Append a FURTHER dataset ZIP to an EXISTING 3D Tiles service.
+
+        ``POST /tiles3d/services/<id>/add`` — the SAME multipart contract as
+        ``tiles3d_create``: the file part is named ``archive`` (the exact
+        field ``api/tiles3d.php`` ``tiles3d_receive_archive`` reads for BOTH
+        the create and the add lane). ``bounds`` (optional WGS84
+        ``[minx, miny, maxx, maxy]``) rides as a plain JSON form field, read
+        server-side by ``tiles3d_read_bounds_param``. ``zip_bytes`` is raw ZIP
+        bytes or a filesystem path (mirroring ``tiles3d_create``). Returns the
+        UPDATED service dict ``{id, title, datasetCount, urls:{tileset}}``;
+        a 2xx without a ``service`` raises (never a silent "success").
+        """
+        if isinstance(zip_bytes, (bytes, bytearray)):
+            data = bytes(zip_bytes)
+            name = filename or "tileset.zip"
+        else:
+            with open(zip_bytes, "rb") as handle:
+                data = handle.read()
+            name = filename or os.path.basename(zip_bytes) or "tileset.zip"
+        fields = {}
+        if bounds is not None:
+            fields["bounds"] = json.dumps(bounds)
+        body, ctype = encode_multipart_form(
+            fields, {"archive": (name, data, "application/zip")}
+        )
+        res = self._request(
+            "POST", self._tiles3d_path(service_id) + "/add",
+            raw_body=body, content_type=ctype, timeout=timeout,
+        )
+        svc = res.get("service") if isinstance(res, dict) else None
+        if not isinstance(svc, dict) or svc.get("id") in (None, ""):
+            raise GeoiError(
+                "The server accepted the upload but did not add the dataset. "
+                "Response: " + _short(res)
+            )
+        return svc
+
+    def tiles3d_list(self, timeout=None):
+        """List the signed-in user's published 3D Tiles services.
+
+        ``GET /tiles3d/services`` -> ``{services: [{id, title, slug,
+        visibility, bytes, tileCount, tilesetUrl, …}]}``. ``timeout`` overrides
+        the client default for this OPTIONAL call so a slow/missing endpoint
+        can't stall the post-sign-in content load (raster parity).
+        """
+        res = self._request("GET", "/tiles3d/services", timeout=timeout)
+        services = res.get("services") if isinstance(res, dict) else None
+        return services if isinstance(services, list) else []
+
+    def shared_tiles3d(self, timeout=None):
+        """List 3D TILES SERVICES shared WITH the signed-in user via a group
+        (#981) — ``GET /tiles3d/services?scope=shared`` -> ``{services:[...]}``.
+
+        Same list-row shape as :meth:`tiles3d_list` (raster parity), for content
+        the user may CONSUME but does not own. OPTIONAL fail-soft context —
+        ``timeout`` bounds a slow/missing endpoint; a non-list result yields
+        ``[]``.
+        """
+        res = self._request(
+            "GET", "/tiles3d/services?scope=shared", timeout=timeout
+        )
+        services = res.get("services") if isinstance(res, dict) else None
+        return services if isinstance(services, list) else []
+
+    def _tiles3d_path(self, service_id):
+        return "/tiles3d/services/" + urllib.parse.quote(str(service_id), safe="")
+
+    def tiles3d_get(self, service_id):
+        """Detail for one 3D Tiles service (``GET /tiles3d/services/<id>`` ->
+        ``{service: {…, urls:{tileset}, shareToken?}}``). Owner-scoped."""
+        res = self._request("GET", self._tiles3d_path(service_id))
+        svc = res.get("service") if isinstance(res, dict) else None
+        return svc if isinstance(svc, dict) else {}
+
+    def fetch_bytes(self, url, *, timeout=None, max_bytes=None, auth=True):
+        """GET an ABSOLUTE ``url`` and return the raw response BYTES.
+
+        Unlike :meth:`_request`, the url is used AS-IS — NOT prefixed with the
+        platform base — because it is already an absolute tileset / tile
+        content URL (carrying any share token in its query). The geoi bearer
+        is attached via the same Authorization header ``_request`` uses, but
+        ONLY when ``auth`` is true and a token is set. At most ``max_bytes``
+        are read (``resp.read(max_bytes)``) so a huge tile is never pulled into
+        memory. Raises ``GeoiError`` on a transport / HTTP error (mirroring
+        ``_request``'s conventions) but returns bytes, not parsed JSON. The
+        query string (share token) and the bearer are NEVER logged — the note
+        redacts the query, like ``put_url``.
+        """
+        headers = {"User-Agent": USER_AGENT}
+        if auth and self.token:
+            headers["Authorization"] = "Bearer " + self.token
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        eff_timeout = self.timeout if timeout is None else timeout
+        safe_url = url.split("?", 1)[0]
+        try:
+            with self._opener.open(req, timeout=eff_timeout) as resp:
+                data = resp.read(max_bytes) if max_bytes else resp.read()
+                status = getattr(resp, "status", None) or getattr(resp, "code", 200) or 200
+        except urllib.error.HTTPError as exc:
+            self._note("GET {} -> HTTP {}".format(safe_url, exc.code))
+            raise GeoiError(
+                "Request failed (HTTP {}).".format(exc.code), status=exc.code)
+        except (urllib.error.URLError, ssl.SSLError) as exc:
+            reason = getattr(exc, "reason", exc)
+            self._note("GET {} -> network error: {}".format(safe_url, reason))
+            raise GeoiError("Network error: {}".format(reason))
+        data = data or b""
+        self._note("GET {} ({} bytes) -> HTTP {}".format(safe_url, len(data), status))
+        return data
+
+    def tiles3d_tileset_json(self, url, *, timeout=None):
+        """Fetch + parse a tileset.json from an ABSOLUTE ``url``.
+
+        Fail-soft: ANY error (network, non-JSON) yields ``{}`` — never raises.
+        Used by the map add path to sniff whether a 3D Tiles service is a
+        point cloud (which QGIS can't render) BEFORE building the layer."""
+        try:
+            raw = self.fetch_bytes(url, timeout=timeout)
+            data = json.loads(raw.decode("utf-8", "replace"))
+            return data if isinstance(data, dict) else {}
+        except Exception:  # noqa: BLE001 - an unreadable tileset is just {}
+            return {}
+
+    def set_tiles3d_visibility(self, service_id, visibility):
+        """Change a 3D-Tiles service's visibility (``private``|``groups``|
+        ``public``) — ``POST /tiles3d/services/<id> {visibility}`` ->
+        ``{ok, service}``."""
+        res = self._request(
+            "POST", self._tiles3d_path(service_id),
+            json_body={"visibility": visibility},
+        )
+        return res.get("service", {}) if isinstance(res, dict) else {}
+
+    def share_tiles3d_with_group(self, service_id, group_id):
+        """Share a ``groups`` 3D-Tiles service with a group — ``POST
+        /tiles3d/services/<id>/shares {groupId}`` -> ``{ok, service}``."""
+        res = self._request(
+            "POST", self._tiles3d_path(service_id) + "/shares",
+            json_body={"groupId": group_id},
+        )
+        return res.get("service", {}) if isinstance(res, dict) else {}
+
+    def unshare_tiles3d_group(self, service_id, group_id):
+        """Revoke a 3D-Tiles service's share with a group — ``DELETE
+        /tiles3d/services/<id>/shares/<groupId>`` -> ``{ok}``."""
+        self._request(
+            "DELETE",
+            self._tiles3d_path(service_id) + "/shares/" + str(int(group_id)),
+        )
+        return True
+
+    def rename_tiles3d(self, service_id, title):
+        """Rename a published 3D Tiles service (``POST /tiles3d/services/<id>
+        {title}`` -> ``{ok, service}``). Returns the updated service dict —
+        mirrors ``rename_tile_service`` for raster tiles."""
+        res = self._request(
+            "POST", self._tiles3d_path(service_id), json_body={"title": title}
+        )
+        return res.get("service", {}) if isinstance(res, dict) else {}
+
+    def move_tiles3d(self, service_id, folder_id):
+        """Move a 3D Tiles service into a folder (a ``content_folders`` id) or
+        to the root (``""``/``None``) — ``POST /tiles3d/services/<id>
+        {folderId}`` -> ``{ok, service{folderId}}`` (raster parity)."""
+        res = self._request(
+            "POST", self._tiles3d_path(service_id),
+            json_body={"folderId": folder_id or ""},
+        )
+        return res.get("service", {}) if isinstance(res, dict) else {}
+
+    def tiles3d_delete(self, service_id):
+        """Delete a published 3D Tiles service (``DELETE /tiles3d/services/<id>``
+        -> ``{ok}``). Returns ``True``."""
+        self._request("DELETE", self._tiles3d_path(service_id))
+        return True
+
+    def tiles3d_tileset_url(self, raw_url):
+        """Absolutize a tileset URL from a create/detail ``urls.tileset`` value.
+
+        The server emits an absolute ``https://…/tiles3d/services/<id>/
+        tileset.json`` (via its public base), but a root-relative value is
+        resolved against ``base_url`` so the copied URL always works in Cesium
+        / ArcGIS. Pure / stdlib-only (unit-testable off QGIS)."""
+        url = (raw_url or "").strip()
+        if not url:
+            return ""
+        if "://" not in url:
+            url = self.base_url + ("/" + url.lstrip("/"))
+        return url
 
     def _absolutize_upload_url(self, url):
         """Resolve a presign ``uploadUrl`` to an absolute, PUT-able URL.

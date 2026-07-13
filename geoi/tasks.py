@@ -109,11 +109,11 @@ class CatalogTask(_BaseTask):
     """Fetch services + projects + folders in one go.
 
     ``services`` / ``projects`` / ``folders`` are the CORE (must-succeed)
-    content load — the feature-services list must always render. ``groups``
-    and ``tiles`` are OPTIONAL context: they are fetched fail-soft AND with a
-    SHORT timeout, so a slow or missing ``/hub/groups`` / ``/raster/services``
-    endpoint degrades to an empty bucket fast instead of stalling sign-in for
-    up to the full client timeout.
+    content load — the feature-services list must always render. ``groups``,
+    ``tiles`` and ``tiles3d`` are OPTIONAL context: they are fetched fail-soft
+    AND with a SHORT timeout, so a slow or missing ``/hub/groups`` /
+    ``/raster/services`` / ``/tiles3d/services`` endpoint degrades to an empty
+    bucket fast instead of stalling sign-in for up to the full client timeout.
     """
 
     # Optional-call timeout (seconds). Short enough that a hung endpoint can't
@@ -142,6 +142,30 @@ class CatalogTask(_BaseTask):
             tiles = self._client.tile_services(timeout=self.OPTIONAL_TIMEOUT)
         except Exception:  # noqa: BLE001 - tile services may be off / slow
             tiles = []
+        # 3D Tiles services — OPTIONAL context with the same fail-soft +
+        # short-timeout rule (the content tree renders them when present; a
+        # missing/slow /tiles3d/services endpoint just yields an empty bucket).
+        tiles3d = []
+        try:
+            tiles3d = self._client.tiles3d_list(timeout=self.OPTIONAL_TIMEOUT)
+        except Exception:  # noqa: BLE001 - 3D Tiles may be off / slow
+            tiles3d = []
+        # Shared-with-me tile / 3D-Tiles services (#981) — OPTIONAL context,
+        # same fail-soft + short-timeout rule. The "Shared with me" tree
+        # section is only surfaced when these return content; a server without
+        # the ?scope=shared endpoints just yields empty buckets.
+        shared_tiles = []
+        try:
+            shared_tiles = self._client.shared_tile_services(
+                timeout=self.OPTIONAL_TIMEOUT)
+        except Exception:  # noqa: BLE001 - shared tiles are optional context
+            shared_tiles = []
+        shared_tiles3d = []
+        try:
+            shared_tiles3d = self._client.shared_tiles3d(
+                timeout=self.OPTIONAL_TIMEOUT)
+        except Exception:  # noqa: BLE001 - shared 3D Tiles are optional context
+            shared_tiles3d = []
         # Storage overview (#677) — OPTIONAL context, same fail-soft + short
         # timeout rule: a missing/slow /hub/storage just hides the line, it
         # must never stall sign-in or the content load.
@@ -152,8 +176,37 @@ class CatalogTask(_BaseTask):
             storage = None
         core["groups"] = groups
         core["tiles"] = tiles
+        core["tiles3d"] = tiles3d
+        core["sharedTiles"] = shared_tiles
+        core["sharedTiles3d"] = shared_tiles3d
         core["storage"] = storage
         return core
+
+
+class DiscoverTask(_BaseTask):
+    """Search geoi's PUBLIC content off the GUI thread (WS3b).
+
+    Mirrors ``CatalogTask``: the ``/hub/discover`` call runs in ``work()`` with
+    a SHORT ``OPTIONAL_TIMEOUT`` so a slow endpoint never freezes the live
+    search box. ``client.discover`` is already fail-soft (empty lists per kind),
+    so the callback receives the normalised ``{services, projects, tiles,
+    tiles3d}`` dict.
+    """
+
+    OPTIONAL_TIMEOUT = 5
+
+    def __init__(self, client, query, on_done, kind="all", limit=25, offset=0):
+        super().__init__("geoi: searching public content", on_done)
+        self._client = client
+        self._query = query
+        self._kind = kind
+        self._limit = limit
+        self._offset = offset
+
+    def work(self):
+        return self._client.discover(
+            q=self._query, kind=self._kind, limit=self._limit,
+            offset=self._offset, timeout=self.OPTIONAL_TIMEOUT)
 
 
 class PublishTask(_BaseTask):
@@ -277,6 +330,61 @@ class RasterPublishTask(_BaseTask):
             is_cancelled=cancel, progress=self._scaled(85, 100))
         self.setProgress(100)
         return {"name": self._name, "url": url, "pmtiles": pmtiles, "bounds": bounds}
+
+
+class Tiles3dPublishTask(_BaseTask):
+    """Upload a PREPARED 3D Tiles tileset ZIP off the GUI thread.
+
+    The plugin does NOT prepare tiles — this only validates the ZIP
+    (client-side, fail-fast) and POSTs it to ``/tiles3d/create``. A server
+    ``GeoiError`` is already mapped to a friendly ``Tiles3dError`` by
+    ``tiles3d.publish``, so ``_BaseTask.run`` surfaces its ``str()`` verbatim.
+    The upload is a single request; a cancel is honoured before it starts.
+    """
+
+    def __init__(self, client, zip_path, title, on_done):
+        super().__init__("geoi: publishing 3D tiles", on_done)
+        self._client = client
+        self._zip_path = zip_path
+        self._title = title
+
+    def work(self):
+        from . import tiles3d
+
+        return tiles3d.publish(
+            self._client, self._zip_path, self._title,
+            is_cancelled=self.isCanceled,
+        )
+
+
+class Tiles3dPointCloudPublishTask(_BaseTask):
+    """Tile a point cloud (.las/.laz/.ply) into an OGC 3D Tiles tileset and
+    publish it — the WHOLE read -> tile -> zip -> upload pipeline off the GUI
+    thread (``tiles3d.publish_point_cloud``), with STAGED progress
+    (read 0-10 / tile 10-85 / upload 85-100 via the pipeline's own staged
+    callback) and cancel (``isCanceled``) polled at every stage boundary.
+    Errors arrive as a friendly ``Tiles3dError``; ``_BaseTask.run`` surfaces
+    its ``str()`` verbatim. ``placement`` is ``'reproject'`` (georeference
+    via the CRS hint / ``reproject_fn``) or ``'local'`` (keep local
+    coordinates); ``reproject_fn(x, y) -> (lat, lng)`` is the GUI's
+    QgsCoordinateTransform-backed injection point for arbitrary CRSs."""
+
+    def __init__(self, client, path, title, placement, reproject_fn, done):
+        super().__init__("geoi: publishing point cloud", done)
+        self._client = client
+        self._path = path
+        self._title = title
+        self._placement = placement
+        self._reproject_fn = reproject_fn
+
+    def work(self):
+        from . import tiles3d
+
+        return tiles3d.publish_point_cloud(
+            self._client, self._path, title=self._title,
+            placement=self._placement, reproject_fn=self._reproject_fn,
+            progress=self.setProgress, is_cancelled=self.isCanceled,
+        )
 
 
 class ActionTask(_BaseTask):

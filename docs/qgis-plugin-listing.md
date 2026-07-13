@@ -1,10 +1,10 @@
-# geoi — plugins.qgis.org listing (v1.1.0)
+# geoi — plugins.qgis.org listing (v1.6.0)
 
 Ready-to-paste copy for the plugin's page on
 <https://plugins.qgis.org/> (Edit plugin → geoi). It mirrors
 `geoi/metadata.txt` so the web GUI and the uploaded ZIP stay in sync. When the
-`1.1.0` PR merges to `main`, `.github/workflows/release.yml` automatically tags
-`v1.1.0` and publishes a GitHub Release with `geoi.zip` attached — download that
+`1.6.0` PR merges to `main`, `.github/workflows/release.yml` automatically tags
+`v1.6.0` and publishes a GitHub Release with `geoi.zip` attached — download that
 ZIP and update the fields below.
 
 ---
@@ -12,8 +12,8 @@ ZIP and update the fields below.
 ## Description
 
 > Sign in to your geoi platform, browse your content, add your services as
-> layers, publish or save QGIS projects, and publish raster as cloud-native
-> tiles back to geoi.
+> layers, publish or save QGIS projects, publish raster as cloud-native
+> tiles, and publish point clouds as 3D Tiles back to geoi.
 
 ## About
 
@@ -39,12 +39,12 @@ ZIP and update the fields below.
 
 ```
 feature service, arcgis, authentication, cloud, geoi, google, apple, microsoft,
-sso, publish, raster, pmtiles, tiles, web, wfs, wms, wmts
+sso, publish, raster, pmtiles, tiles, 3d tiles, point cloud, las, laz, ply,
+cesium, discover, public, web, wfs, wms, wmts
 ```
 
-Changes from the previous listing: **added** `apple`, `microsoft`, `sso`,
-`raster`, `pmtiles`, `tiles`, `wmts`. (Drop the old plain `wmts`/`wms`/`wfs`
-duplicates if any; the set above is the canonical one.)
+Changes from the previous (`1.1.0`) listing: **added** `3d tiles`,
+`point cloud`, `las`, `laz`, `ply`, `cesium`, `discover`, `public`.
 
 ## Links
 
@@ -52,40 +52,55 @@ duplicates if any; the set above is the canonical one.)
 - **Tracker:** <https://github.com/geoinformatic/geoi-qgis/issues>
 - **Code repository:** <https://github.com/geoinformatic/geoi-qgis>
 
+> **Always point these at `geoi-qgis`, never at the upstream `geoi` repo.**
+> Vendor drops from the upstream `geoi` project ship a `metadata.txt` whose
+> `homepage` / `tracker` / `repository` point at `github.com/geoinformatic/geoi`
+> — a different (not publicly reachable) repository. Uploading that metadata
+> as-is fails plugins.qgis.org's pre-upload check with *"Please provide valid
+> url link for the following key(s) in the metadata source: tracker,
+> repository. The website(s) cannot be reached within 10 seconds."* Every
+> vendor-drop merge into `geoi-qgis` must rewrite these three fields back to
+> the `geoi-qgis` URLs above before packaging/uploading.
+
 ## Flags
 
-- **Experimental:** unchecked (this is a stable `1.1.0` release).
+- **Experimental:** unchecked (this is a stable `1.6.0` release).
 - **Deprecated:** unchecked.
 - **Server:** leave unchecked (this is a desktop plugin, not a server plugin).
 
 ## Licence
 
-**GNU AGPL-3.0.** The plugin was relicensed from Apache-2.0 to AGPL-3.0 in
-`1.1.0`. The bundled PMTiles writer (`geoi/_vendor/pmtiles/`) remains third-party
-BSD-3-Clause — see the repository `NOTICE`. The QGIS plugin page has no licence
-field; the licence travels in `metadata.txt` (`license=AGPL-3.0`) and `LICENSE`.
+**GNU AGPL-3.0.** The bundled PMTiles writer (`geoi/_vendor/pmtiles/`) remains
+third-party BSD-3-Clause — see the repository `NOTICE`. The QGIS plugin page
+has no licence field; the licence travels in `metadata.txt`
+(`license=AGPL-3.0`) and `LICENSE`.
 
-## What's new in 1.1.0 (for the release announcement)
+## What's new in 1.6.0 (for the release announcement)
 
-- **Publish raster as cloud-native tiles** — tile raster layers or a folder of
-  GeoTIFFs into a single PMTiles archive (WebP + overviews, always EPSG:3857),
-  uploaded straight to object storage via a presigned URL (your bearer is never
-  sent off-site), with progress + cancel. The PMTiles writer is bundled, so it
-  works out of the box.
-- **Sign in with Google, Apple, Microsoft or ArcGIS** — whichever your geoi admin
-  enabled, read live from the platform; the loopback handoff never strands you
-  (paste-code fallback + a Return-to-QGIS retry).
-- **Storage overview** in the account row.
-- **Manage published tile services** — add as WMTS, copy XYZ/WMTS/PMTiles URLs,
-  rename, change visibility, move, share, delete; a clearer Feature Services /
-  Web Maps / Tile Services tree.
-- **Storage quotas** (per-user / group) surfaced in the plugin.
-- **Calmer startup** (no forced sign-in) and a robust loopback sign-in.
-- **Relicensed under AGPL-3.0.**
+- **Redesigned action bar** — a cleaner, consistently grouped bottom button
+  layout.
+- **Unified content-browser menus** across Feature Services, Web Maps, Tile
+  Services and 3D-Tiles Services — rename, share, move to folder, copy URL,
+  add to map and delete now work the same way for every content type.
+- **Discover mode** — live-search geoi's publicly shared content alongside
+  your own.
+- **Fixed tile-service zoom extent** — "Zoom to layer" now frames the actual
+  data.
+- **Manage groups from QGIS** — create, rename, delete, and add/remove
+  members by email.
+- **Share a Feature Service with groups** (and withdraw shares), and toggle a
+  Feature Service editable/read-only after publishing.
+- **Multi-select and share several items at once.**
+- **Fixed a false "Added to map"** for point-cloud 3D Tiles services — now
+  points to the deck.gl / Cesium web preview instead.
+- **"Shared with me"** section for Tile Services and 3D-Tiles Services.
+- **Open a 3D Tiles Service** in the deck.gl or Cesium web preview from its
+  own menu action.
+- **Publish point clouds (LAS / LAZ / PLY)** as geoi 3D Tiles Services.
 
 ## Upload checklist (manual web form)
 
-1. Download `geoi.zip` from the latest **GitHub Release** (`v1.1.0`, auto-built
+1. Download `geoi.zip` from the latest **GitHub Release** (`v1.6.0`, auto-built
    on merge to `main`; a single top-level `geoi/` folder with `metadata.txt` and
    `LICENSE` at its root). Or build it locally with `scripts/package.sh`.
 2. *Edit plugin → geoi* (or the version-add page) → drag in the new ZIP; QGIS
@@ -95,10 +110,13 @@ field; the licence travels in `metadata.txt` (`license=AGPL-3.0`) and `LICENSE`.
    auto-fill them from the ZIP.
 4. Confirm **Experimental** and **Deprecated** are unchecked, then save.
 
-> **Two upload gotchas, both handled as of `1.1.0`:** (1) the package must contain
-> a `LICENSE` file at the root of the `geoi/` folder, and (2) the icon must be a
-> **raster PNG** — plugins.qgis.org's website can't store an SVG icon and rejects
-> it with *"Upload a valid image."* `metadata.txt` now points at `icon.png`.
+> **Upload gotchas, all handled as of `1.6.0`:** (1) the package must contain a
+> `LICENSE` file at the root of the `geoi/` folder; (2) the icon must be a
+> **raster PNG** — plugins.qgis.org's website can't store an SVG icon and
+> rejects it with *"Upload a valid image."* `metadata.txt` points at
+> `icon.png`; (3) `tracker` and `repository` must be **publicly reachable
+> `geoi-qgis` URLs**, not the upstream `geoi` repository — see the callout
+> under [Links](#links) above.
 
 ## Automated upload (no web form)
 
@@ -110,13 +128,13 @@ published GitHub Release and uploads the plugin automatically. To enable it:
    that is a maintainer of the `geoi` plugin). The workflow skips cleanly until
    the secret exists, so it never breaks CI.
 2. From then on, each release auto-publishes; you can also trigger it by hand
-   (Actions → *Publish to plugins.qgis.org* → Run workflow → tag `v1.1.0`).
+   (Actions → *Publish to plugins.qgis.org* → Run workflow → tag `v1.6.0`).
 
 To run it locally instead:
 
 ```bash
 pip install qgis-plugin-ci
-qgis-plugin-ci release v1.1.0 \
+qgis-plugin-ci release v1.6.0 \
   --osgeo-username "$OSGEO_USERNAME" --osgeo-password "$OSGEO_PASSWORD"
 ```
 
