@@ -124,7 +124,9 @@ def _bare_plugin():
     saved = {
         k: sys.modules.get(k)
         for k in ("qgis", "qgis.core", "qgis.PyQt", "qgis.PyQt.QtCore",
-                  "qgis.PyQt.QtGui", "qgis.PyQt.QtWidgets")
+                  "qgis.PyQt.QtGui", "qgis.PyQt.QtWidgets",
+                  "geoi.gui.browser_panel", "geoi.gui.dialogs", "geoi.auth",
+                  "geoi.tasks", "geoi.plugin")
     }
     _mod("qgis")
     _mod("qgis.core", QgsApplication=_Any, QgsProject=_Any,
@@ -138,20 +140,33 @@ def _bare_plugin():
 
     for name, names in (
         ("geoi.gui.browser_panel", ["GeoiPanel"]),
-        ("geoi.gui.dialogs", ["FeedbackDialog", "MoveToFolderDialog",
-                              "PublishDialog", "PublishRasterDialog",
-                              "SaveProjectDialog", "SettingsDialog",
-                              "ShareDialog", "ManageGroupsDialog"]),
         ("geoi.auth", ["SessionStore"]),
-        ("geoi.tasks", ["ActionTask", "BasemapsTask", "CatalogTask", "DiscoverTask", "PublishTask",
-                        "RasterPublishTask", "SaveProjectTask", "SignInTask",
-                        "Tiles3dPublishTask"]),
     ):
         m = types.ModuleType(name)
         for n in names:
             setattr(m, n, _Any)
         sys.modules[name] = m
-    sys.modules["geoi.tasks"].SIGNIN_DISABLED = "\x00signin-disabled\x00"
+
+    # geoi.tasks and geoi.gui.dialogs are stubbed PERMISSIVELY: any class the
+    # plugin imports from them — present or a FUTURE new Task/Dialog — resolves
+    # to _Any via a PEP 562 module __getattr__, so this fake never needs a
+    # hand-maintained allow-list again.
+    def _permissive(mod_name, **attrs):
+        m = types.ModuleType(mod_name)
+        for key, val in attrs.items():
+            setattr(m, key, val)
+
+        def _missing(_n, _stub=_Any):
+            if _n.startswith("__") and _n.endswith("__"):
+                raise AttributeError(_n)
+            return _stub
+        m.__getattr__ = _missing
+        sys.modules[mod_name] = m
+        return m
+
+    _permissive("geoi.gui.dialogs")
+    # plugin also imports the SIGNIN_DISABLED sentinel (a value) from tasks.
+    _permissive("geoi.tasks", SIGNIN_DISABLED="\x00signin-disabled\x00")
 
     sys.modules.pop("geoi.plugin", None)
     from geoi import plugin as plugin_mod  # noqa: E402
