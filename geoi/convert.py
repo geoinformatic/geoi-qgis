@@ -168,7 +168,8 @@ def _jsonable(value):
             return value.toString("yyyy-MM-dd")
         if isinstance(value, QDateTime):
             return value.toString("yyyy-MM-ddTHH:mm:ss")
-    except Exception:  # noqa: BLE001
+    # security review: falls through to the generic value handling below
+    except Exception:  # nosec B110
         pass
     if value is None:
         return None

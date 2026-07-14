@@ -146,7 +146,8 @@ def run_web_signin(base_url, open_url=None, timeout=300, is_cancelled=None):
     finally:
         try:
             server.server_close()
-        except Exception:  # noqa: BLE001
+        # security review: closing an already-served local loopback server socket
+        except Exception:  # nosec B110
             pass
 
     result = server.result
@@ -189,7 +190,8 @@ class SessionStore:
     def clear_token(self):
         try:
             self._auth_manager().removeAuthSetting(SESSION_SETTING_KEY)
-        except Exception:  # noqa: BLE001
+        # security review: sign-out proceeds even if the stored auth setting is already gone
+        except Exception:  # nosec B110
             pass
 
     # bearer header auth config (used by the ArcGIS Feature Service layers) --
@@ -235,7 +237,8 @@ class SessionStore:
             new_id = stored.id()
             if ok and new_id:
                 return new_id
-        except Exception:  # noqa: BLE001 - never break sign-in over this
+        # security review: persisting a header authcfg must never break sign-in
+        except Exception:  # nosec B110
             pass
         return ""
 
@@ -246,5 +249,6 @@ class SessionStore:
             from qgis.core import QgsApplication
 
             QgsApplication.authManager().removeAuthenticationConfig(authcfg_id)
-        except Exception:  # noqa: BLE001
+        # security review: removing an authcfg that may already be gone must not raise
+        except Exception:  # nosec B110
             pass

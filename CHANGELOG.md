@@ -39,6 +39,20 @@ development series into `geoi-qgis`.
   per-file WGS84 reprojection or local placement, and a dedicated "3D Tiles
   Services" category in the content browser.
 
+**Security hardening (same 1.6.0, re-uploaded):** cleared every finding from
+plugins.qgis.org's Bandit security gate. The upstream vendor drop introduced
+a large number of deliberate, reviewed `try/except/pass` fail-soft patterns
+(logging, clipboard, UI framing, optional diagnostic/style fields) — each is
+now annotated `# nosec` with a `# security review:` comment explaining why
+silent handling is safe, rather than left for the scanner to flag blind. The
+vendored PMTiles v2 reader's `assert` (stripped under `python -O`) was
+replaced with an explicit `raise`. Two `subprocess` calls (the `pmtiles`
+CLI and `pdal` fallback) got the same treatment plus one genuine fix: raster
+tiling inputs are now absolutized before reaching the pipeline, so a
+relative raster-layer path can no longer have its basename misread as a
+CLI flag. CI now runs `bandit -r geoi` on every push/PR so this can't
+regress silently on a future vendor drop.
+
 ## 1.1.0 — cloud raster tiling, multi-provider sign-in, AGPL
 
 This release brings the work matured across the `0.8.0`–`0.19.0` development

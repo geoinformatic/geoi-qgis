@@ -66,7 +66,8 @@ class GeoiPlugin:
             from qgis.core import QgsMessageLog
 
             QgsMessageLog.logMessage(str(msg), "geoi")
-        except Exception:  # noqa: BLE001
+        # security review: diagnostic logging must never break the caller
+        except Exception:  # nosec B110
             pass
 
     # ----------------------------------------------------------- lifecycle
@@ -116,7 +117,8 @@ class GeoiPlugin:
         # QGIS 3 (Qt5) and QGIS 4 (Qt6, where level must be a Qgis enum, not int).
         try:
             self.iface.messageBar().pushInfo("geoi", text)
-        except Exception:  # noqa: BLE001 - messaging must never break a flow
+        # security review: message-bar notification must never break a flow
+        except Exception:  # nosec B110
             pass
 
     def _signed_in(self):
@@ -322,40 +324,48 @@ class GeoiPlugin:
         info = {}
         try:
             info["plugin_version"] = self._plugin_version()
-        except Exception:  # noqa: BLE001
+        # security review: plugin_version is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             from qgis.core import Qgis
             info["qgis"] = Qgis.QGIS_VERSION
-        except Exception:  # noqa: BLE001
+        # security review: qgis version is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             from qgis.PyQt.QtCore import QT_VERSION_STR
             info["qt"] = QT_VERSION_STR
-        except Exception:  # noqa: BLE001
+        # security review: Qt version is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             info["python"] = platform.python_version()
-        except Exception:  # noqa: BLE001
+        # security review: python version is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             info["os"] = platform.platform()
-        except Exception:  # noqa: BLE001
+        # security review: OS platform string is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             from qgis.PyQt.QtCore import QLocale
             info["locale"] = QLocale().name()
-        except Exception:  # noqa: BLE001
+        # security review: locale name is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             user = settings.session_user() or {}
             if user.get("email"):
                 info["account"] = user.get("email")
-        except Exception:  # noqa: BLE001
+        # security review: account email is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             info["base_url"] = settings.base_url()
-        except Exception:  # noqa: BLE001
+        # security review: base_url is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         return info
 
@@ -694,7 +704,8 @@ class GeoiPlugin:
                 QgsCoordinateReferenceSystem("EPSG:4326"),
                 layer.crs(), QgsProject.instance())
             layer.setExtent(xform.transformBoundingBox(rect))
-        except Exception:  # noqa: BLE001 - framing must never break the add
+        # security review: zooming/framing the new layer must never break the add
+        except Exception:  # nosec B110
             pass
 
     def copy_tile_url(self, payload, fmt):
@@ -761,7 +772,9 @@ class GeoiPlugin:
                     self._info("Visibility set to {}. Share URL copied:\n{}".format(
                         vis, url))
                     return
-                except Exception:  # noqa: BLE001
+                # security review: clipboard copy is best-effort; the
+                # visibility update itself already succeeded
+                except Exception:  # nosec B110
                     pass
             self._info("Visibility set to {}.".format(vis))
 
@@ -1251,7 +1264,8 @@ class GeoiPlugin:
             for vlayer in layers:
                 try:
                     vlayer.updateExtents()
-                except Exception:  # noqa: BLE001 - scene/raster layers lack it
+                # security review: updateExtents() is absent on scene/raster layers
+                except Exception:  # nosec B110
                     pass
                 extent = vlayer.extent()
                 if extent.isEmpty():
@@ -1269,7 +1283,8 @@ class GeoiPlugin:
         except Exception:  # noqa: BLE001 - framing must never break adding
             try:
                 self.iface.mapCanvas().refresh()
-            except Exception:  # noqa: BLE001
+            # security review: canvas refresh after a framing failure is cosmetic
+            except Exception:  # nosec B110
                 pass
 
     # ----------------------------------------------------- publish / save
@@ -1535,7 +1550,8 @@ class GeoiPlugin:
                 # straight into Cesium / ArcGIS.
                 try:
                     QApplication.clipboard().setText(url)
-                except Exception:  # noqa: BLE001 - clipboard is best-effort
+                # security review: clipboard copy is best-effort
+                except Exception:  # nosec B110
                     pass
                 QMessageBox.information(
                     self.iface.mainWindow(),
@@ -1621,7 +1637,8 @@ class GeoiPlugin:
             self._log_msg("Published 3D tiles '{}' -> {}".format(name, url))
             try:
                 QApplication.clipboard().setText(url)
-            except Exception:  # noqa: BLE001 - clipboard is best-effort
+            # security review: clipboard copy is best-effort
+            except Exception:  # nosec B110
                 pass
             summary = "3D Tiles service '{}' was published ({} of {} file(s)).".format(
                 name, len(jobs) - len(failures), len(jobs))
@@ -1763,7 +1780,8 @@ class GeoiPlugin:
 
                 if tiles3d.tileset_is_point_cloud(tileset, fetch_glb):
                     return self._warn_bar(_TILES3D_POINT_CLOUD_MSG)
-        except Exception:  # noqa: BLE001 - the sniff must never block a mesh add
+        # security review: the point-cloud sniff must never block adding a mesh tileset
+        except Exception:  # nosec B110
             pass
         name = _title(payload)
         try:

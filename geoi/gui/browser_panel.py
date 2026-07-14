@@ -191,7 +191,8 @@ class GeoiPanel(_Dock):
             self._search.addAction(
                 self._std_icon(QStyle.StandardPixmap.SP_FileDialogContentsView),
                 pos)
-        except Exception:  # noqa: BLE001 - the icon is cosmetic
+        # security review: the search-box icon is purely cosmetic
+        except Exception:  # nosec B110
             pass
         # ~300 ms debounce: a keystroke restarts the timer; its timeout fires
         # the off-thread DiscoverTask. Live client-side filtering of the already

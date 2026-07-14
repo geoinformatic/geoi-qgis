@@ -31,7 +31,8 @@ class Reader:
             return self._header
         else:
             header_bytes = self.get_bytes(0, 512000)
-            assert int.from_bytes(header_bytes[0:2], byteorder="little") == 0x4D50
+            if int.from_bytes(header_bytes[0:2], byteorder="little") != 0x4D50:
+                raise ValueError("Not a PMTiles v2 archive (bad magic number).")
             version = int.from_bytes(header_bytes[2:4], byteorder="little")
             metadata_len = int.from_bytes(header_bytes[4:8], byteorder="little")
             metadata = json.loads(header_bytes[10 : 10 + metadata_len])

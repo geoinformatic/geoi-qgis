@@ -75,7 +75,8 @@ class SignInTask(_BaseTask):
                 raise _SigninDisabled("Sign-in is not enabled on this geoi server.")
         except _SigninDisabled:
             raise
-        except Exception:  # noqa: BLE001 - fail open: never block the browser
+        # security review: provider check must fail open: never block the browser
+        except Exception:  # nosec B110
             pass
 
         token = auth_mod.run_web_signin(

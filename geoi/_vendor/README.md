@@ -10,10 +10,21 @@ plugin works the instant it is installed — with **no** separate `pip` /
 - **Version:** `3.7.0` (pinned)
 - **Source artifact:** `pmtiles-3.7.0.tar.gz` (sdist),
   sha256 `ed8b04d550d104c81a759c9cc07bfc5743750f62e751f840425f4b9f4bb903df`
-- **Vendored files** (byte-identical to the sdist's `pmtiles/` package):
-  `__init__.py`, `convert.py`, `reader.py`, `writer.py`, `tile.py`,
-  `v2.py`, `py.typed`. The sdist's `bin/`, `examples/`, `test/` and
-  `*.egg-info` are intentionally NOT vendored.
+- **Vendored files** (byte-identical to the sdist's `pmtiles/` package, with
+  one deliberate patch — see below): `__init__.py`, `convert.py`,
+  `reader.py`, `writer.py`, `tile.py`, `v2.py`, `py.typed`. The sdist's
+  `bin/`, `examples/`, `test/` and `*.egg-info` are intentionally NOT
+  vendored.
+- **Deliberate patch (2026-07, security-scan fix):** `v2.py`'s legacy header check used
+  `assert magic == 0x4D50`. `assert` statements are stripped when Python
+  runs under `-O`, so the PMTiles v2 magic-number check would silently
+  vanish in an optimised interpreter — and plugins.qgis.org's Bandit
+  security gate (B101, "use of assert detected") blocks any plugin upload
+  that contains one, vendored or not. Replaced with an explicit
+  `if ...: raise ValueError(...)` that is byte-for-byte equivalent at
+  runtime (same check, same failure mode) and cannot be optimised away.
+  This is the only intentional deviation from the upstream sdist; every
+  other vendored file is untouched.
 - **License:** BSD-3-Clause — see `pmtiles/LICENSE` (the upstream sdist ships
   no LICENSE file, so the canonical text from the protomaps/PMTiles repo is
   added here for provenance). geoi (AGPL-3.0) redistributing BSD-3 code is

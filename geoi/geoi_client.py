@@ -1010,7 +1010,9 @@ class GeoiClient:
             body = ""
             try:
                 body = (exc.read() or b"").decode("utf-8", "replace")[:200]
-            except Exception:  # noqa: BLE001
+            # security review: best-effort read of the error body for a
+            # nicer message; the HTTPError itself is already being raised
+            except Exception:  # nosec B110
                 pass
             raise GeoiError(
                 "Uploading the tiles to storage failed (HTTP {}). {}".format(
@@ -1125,7 +1127,8 @@ class GeoiClient:
         if self._log:
             try:
                 self._log(msg)
-            except Exception:  # noqa: BLE001 - diagnostics must never break a call
+            # security review: diagnostic logging must never break the API call
+            except Exception:  # nosec B110
                 pass
 
 

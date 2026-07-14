@@ -128,7 +128,8 @@ def symbol_to_geoi(symbol, geom_name):
                 w = _num(symbol.width())
                 if w is not None:
                     out["weight"] = w
-        except Exception:  # noqa: BLE001
+        # security review: line weight is an optional style field
+        except Exception:  # nosec B110
             pass
     else:  # Polygon — colour is the fill; outline carries the stroke
         color, width = _stroke(symbol)
@@ -214,21 +215,25 @@ def labels_from_settings(settings, text_format):
         size = _num(text_format.size(), 1)
         if size:
             out["fontSize"] = size
-    except Exception:  # noqa: BLE001
+    # security review: font size is an optional label field
+    except Exception:  # nosec B110
         pass
     try:
         out["fontFamily"] = text_format.font().family()
-    except Exception:  # noqa: BLE001
+    # security review: font family is an optional label field
+    except Exception:  # nosec B110
         pass
     try:
         out["color"] = _hex(text_format.color())
-    except Exception:  # noqa: BLE001
+    # security review: text color is an optional label field
+    except Exception:  # nosec B110
         pass
     try:
         buf = text_format.buffer()
         if buf.enabled():
             out["haloColor"] = _hex(buf.color())
-    except Exception:  # noqa: BLE001
+    # security review: halo color is an optional label field
+    except Exception:  # nosec B110
         pass
     return out
 
@@ -281,6 +286,7 @@ def layer_symbology(layer, geom_name):
         opacity = float(layer.opacity())
         if 0.0 <= opacity < 1.0:
             sym["opacity"] = round(opacity, 3)
-    except Exception:  # noqa: BLE001
+    # security review: opacity is an optional symbol field
+    except Exception:  # nosec B110
         pass
     return sym

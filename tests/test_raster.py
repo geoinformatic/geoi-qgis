@@ -83,6 +83,53 @@ class TargetCrsConstantTest(unittest.TestCase):
         self.assertEqual(raster.TARGET_CRS, "EPSG:3857")
 
 
+class CollectTiffsAbsolutizesTest(unittest.TestCase):
+    """A relative raster path (e.g. layer.source() from a QGIS project saved
+    with relative paths) must never reach the pmtiles/GDAL command lines
+    built later in the pipeline as a relative path — a filename whose
+    basename starts with '-' would be misread as a flag rather than a
+    positional filename (argument injection into the pmtiles CLI). Every
+    path collect_tiffs() returns must be absolute, whatever shape it was
+    given."""
+
+    def test_relative_file_path_is_returned_absolute(self):
+        cwd = os.getcwd()
+        try:
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmp:
+                os.chdir(tmp)
+                open("a.tif", "w").close()
+                out = raster.collect_tiffs(["a.tif"])
+                self.assertEqual(len(out), 1)
+                self.assertTrue(os.path.isabs(out[0]), out[0])
+        finally:
+            os.chdir(cwd)
+
+    def test_directory_walk_results_are_absolute(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "b.tif"), "w").close()
+            out = raster.collect_tiffs([os.path.relpath(tmp)])
+            self.assertEqual(len(out), 1)
+            self.assertTrue(os.path.isabs(out[0]), out[0])
+
+    def test_leading_dash_basename_cannot_reach_argv_as_relative(self):
+        # A basename that looks like a CLI flag must still come back rooted
+        # at an absolute directory, never as a bare '-...' token.
+        cwd = os.getcwd()
+        try:
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmp:
+                os.chdir(tmp)
+                open("-rf.tif", "w").close()
+                out = raster.collect_tiffs(["-rf.tif"])
+                self.assertEqual(len(out), 1)
+                self.assertTrue(os.path.isabs(out[0]), out[0])
+                self.assertFalse(out[0].startswith("-"))
+        finally:
+            os.chdir(cwd)
+
+
 class WarpForcesWebMercatorTest(unittest.TestCase):
     def test_warp_signature_has_no_crs_parameter(self):
         # The whole point of #552: there is NO caller-supplied CRS — 3857 is

@@ -68,7 +68,8 @@ def _report(progress, value):
     if progress:
         try:
             progress(value)
-        except Exception:  # noqa: BLE001 - progress must never break the run
+        # security review: the progress callback must never break the publish run
+        except Exception:  # nosec B110
             pass
 
 
@@ -78,20 +79,27 @@ def collect_tiffs(paths):
 
     A directory is walked one level deep for ``*.tif`` / ``*.tiff``. Files
     are taken as-is. Order is deterministic so a mosaic is reproducible.
+
+    Every returned path is absolutized. A QGIS project saved with relative
+    paths can hand ``layer.source()`` back as a relative path — left as-is,
+    a filename whose basename happens to start with ``-`` would reach the
+    ``pmtiles``/GDAL command lines built later in the pipeline and could be
+    misread as a flag rather than a positional filename (argument
+    injection). An absolute path never starts with ``-`` on any platform.
     """
     out = []
     for path in paths or []:
         if os.path.isdir(path):
             for name in sorted(os.listdir(path)):
                 if name.lower().endswith((".tif", ".tiff")):
-                    out.append(os.path.join(path, name))
+                    out.append(os.path.abspath(os.path.join(path, name)))
         elif path:
-            out.append(path)
+            out.append(os.path.abspath(path))
     # de-dup while keeping order
     seen = set()
     unique = []
     for path in out:
-        key = os.path.abspath(path)
+        key = path
         if key not in seen:
             seen.add(key)
             unique.append(path)
@@ -314,10 +322,16 @@ def to_pmtiles(tif_3857, pmtiles_path=None, is_cancelled=None, progress=None):
 
 
 def _mbtiles_to_pmtiles_cli(cli, mbtiles_path, pmtiles_path):
-    import subprocess
+    # security review: `cli` is resolved via shutil.which("pmtiles") — a
+    # fixed, known executable name — never user input; list-form argv, no
+    # shell=True, so there is no shell-injection surface. mbtiles_path/
+    # pmtiles_path are always absolute (collect_tiffs() in this module
+    # absolutizes every input up front), so neither can start with '-' and
+    # be misread as a flag by the pmtiles CLI (argument injection).
+    import subprocess  # nosec B404
 
     try:
-        subprocess.run(
+        subprocess.run(  # nosec B603
             [cli, "convert", mbtiles_path, pmtiles_path],
             check=True,
             capture_output=True,
