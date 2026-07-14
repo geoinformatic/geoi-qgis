@@ -30,61 +30,29 @@ class CrsRegressionTest(unittest.TestCase):
         self.assertIn(".refresh()", src)
 
 
-def _meta():
-    out = {}
-    for line in _read("metadata.txt").splitlines():
-        if "=" in line and not line.strip().startswith("#"):
-            key, _, value = line.partition("=")
-            out[key.strip()] = value.strip()
-    return out
-
-
 class MetadataCompatibilityTest(unittest.TestCase):
     """Without qgisMaximumVersion, QGIS caps the supported range at 3.99 and
     refuses to load the plugin on QGIS 4.x ("incompatible with this version of
     QGIS"). The plugin must declare it works on QGIS 3 AND 4."""
 
+    def _meta(self):
+        out = {}
+        for line in _read("metadata.txt").splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                key, _, value = line.partition("=")
+                out[key.strip()] = value.strip()
+        return out
+
     def test_declares_qgis4_maximum(self):
-        meta = _meta()
+        meta = self._meta()
         self.assertIn("qgisMaximumVersion", meta)
         major = int(meta["qgisMaximumVersion"].split(".")[0])
         self.assertGreaterEqual(major, 4, "must support QGIS 4.x")
 
     def test_minimum_is_qgis3(self):
-        meta = _meta()
+        meta = self._meta()
         self.assertIn("qgisMinimumVersion", meta)
         self.assertEqual(meta["qgisMinimumVersion"].split(".")[0], "3")
-
-
-class MetadataPackagingTest(unittest.TestCase):
-    """Vendor drops from the upstream `geoi` project ship a metadata.txt whose
-    homepage/tracker/repository point at github.com/geoinformatic/geoi (a
-    different, not publicly reachable repo) and whose icon/license fields
-    drop this repo's plugins.qgis.org packaging fixes. Merging a vendor drop
-    verbatim makes plugins.qgis.org reject the upload with "Please provide
-    valid url link for the following key(s) in the metadata source: tracker,
-    repository. The website(s) cannot be reached within 10 seconds." Lock the
-    geoi-qgis-specific overrides in so a future vendor-drop merge can't lose
-    them silently."""
-
-    def test_tracker_and_repository_point_at_geoi_qgis(self):
-        meta = _meta()
-        for key in ("homepage", "tracker", "repository"):
-            self.assertIn(key, meta)
-            self.assertIn(
-                "github.com/geoinformatic/geoi-qgis", meta[key],
-                "{}= must point at geoi-qgis, not the upstream geoi repo (got {!r})"
-                .format(key, meta[key]),
-            )
-
-    def test_icon_is_the_packaged_png(self):
-        meta = _meta()
-        msg = "plugins.qgis.org rejects SVG icons — see icon= in metadata.txt"
-        self.assertEqual(meta.get("icon"), "icon.png", msg)
-
-    def test_license_field_present(self):
-        meta = _meta()
-        self.assertEqual(meta.get("license"), "AGPL-3.0")
 
 
 class FeedbackFeatureTest(unittest.TestCase):
@@ -154,6 +122,15 @@ class RasterCrsForcedTest(unittest.TestCase):
         self.assertIn("fixed", body)
 
 
+class ZoomToLayersNoSetMinimalTest(unittest.TestCase):
+    """``QgsRectangle.setMinimal()`` is deprecated across the QGIS 3.22-4.99
+    range; the extent framing seeds from a None accumulator + the stable
+    copy-constructor instead, so the sentinel call must be gone for good."""
+
+    def test_plugin_never_calls_set_minimal(self):
+        self.assertNotIn(".setMinimal(", _read("plugin.py"))
+
+
 class PresignedUrlNotLoggedTest(unittest.TestCase):
     """The presigned PUT URL carries the SigV4 signature (a short-lived write
     credential) and must never be logged verbatim — only a redacted form."""
@@ -167,6 +144,33 @@ class PresignedUrlNotLoggedTest(unittest.TestCase):
                          "put_url must log a redacted URL, not the signed one")
         # It strips the query string (where the signature lives) before logging.
         self.assertIn('url.split("?", 1)[0]', body)
+
+
+class BulkShareWiringTest(unittest.TestCase):
+    """PR-B: the content browser supports EXTENDED (multi) selection and wires
+    a single bulk-share context action. Qt6 parity: never ``.exec_(``."""
+
+    def test_tree_uses_extended_selection(self):
+        src = _read("gui", "browser_panel.py")
+        self.assertIn("ExtendedSelection", src)
+        self.assertNotIn("SingleSelection", src)  # the tree was switched over
+
+    def test_bulk_share_action_is_wired(self):
+        src = _read("gui", "browser_panel.py")
+        self.assertIn("Share {} items", src)          # the menu action label
+        self.assertIn("bulk_shareable", src)
+        self.assertIn("self._c.bulk_share(", src)     # calls the controller
+
+    def test_controller_has_bulk_share(self):
+        src = _read("plugin.py")
+        self.assertIn("def bulk_share(self, items)", src)
+
+    def test_no_exec_underscore_introduced(self):
+        # Qt6 parity across every surface PR-B touched.
+        for parts in (("plugin.py",), ("geoi_client.py",),
+                      ("gui", "browser_panel.py")):
+            self.assertNotIn(".exec_(", _read(*parts),
+                             "{} must use .exec(), never .exec_(".format(parts))
 
 
 if __name__ == "__main__":

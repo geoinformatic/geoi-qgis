@@ -338,6 +338,73 @@ class ManageTest(unittest.TestCase):
                                  "groups": [{"id": 1, "name": "Team"}]}), 200)])
         self.assertEqual(c.list_groups()[0]["name"], "Team")
 
+
+class GroupManagementTest(unittest.TestCase):
+    """B1: the group-management client methods — every method's HTTP method,
+    path and body, mirroring the /hub/groups endpoints in api/hub.php."""
+
+    def test_create_group(self):
+        c = client([(json.dumps({"success": True,
+                                 "group": {"id": 3, "name": "Field"}}), 200)])
+        c.set_token("T")
+        group = c.create_group("Field")
+        self.assertEqual(group["id"], 3)
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertTrue(req.full_url.endswith("/hub/groups"))
+        self.assertEqual(json.loads(req.data.decode()), {"name": "Field"})
+
+    def test_rename_group(self):
+        c = client([(json.dumps({"success": True,
+                                 "group": {"id": 3, "name": "Survey"}}), 200)])
+        group = c.rename_group(3, "Survey")
+        self.assertEqual(group["name"], "Survey")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertTrue(req.full_url.endswith("/hub/groups/3"))
+        self.assertEqual(json.loads(req.data.decode()), {"name": "Survey"})
+
+    def test_delete_group(self):
+        c = client([(json.dumps({"success": True, "deleted": 3}), 200)])
+        self.assertTrue(c.delete_group(3))
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "DELETE")
+        self.assertTrue(req.full_url.endswith("/hub/groups/3"))
+
+    def test_get_group_returns_summary_and_members(self):
+        c = client([(json.dumps({
+            "success": True,
+            "group": {"id": 3, "name": "Field", "myRole": "owner"},
+            "members": [{"userId": 7, "email": "a@b.c", "role": "owner"}],
+        }), 200)])
+        detail = c.get_group(3)
+        self.assertEqual(detail["group"]["myRole"], "owner")
+        self.assertEqual(detail["members"][0]["userId"], 7)
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "GET")
+        self.assertTrue(req.full_url.endswith("/hub/groups/3"))
+
+    def test_add_group_member(self):
+        c = client([(json.dumps({
+            "success": True,
+            "members": [{"userId": 7}, {"userId": 8, "email": "x@y.z"}],
+        }), 200)])
+        members = c.add_group_member(3, "x@y.z")
+        self.assertEqual(members[-1]["userId"], 8)
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertTrue(req.full_url.endswith("/hub/groups/3/members"))
+        self.assertEqual(json.loads(req.data.decode()), {"email": "x@y.z"})
+
+    def test_remove_group_member(self):
+        c = client([(json.dumps({"success": True,
+                                 "members": [{"userId": 7}]}), 200)])
+        members = c.remove_group_member(3, 8)
+        self.assertEqual(members, [{"userId": 7}])
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "DELETE")
+        self.assertTrue(req.full_url.endswith("/hub/groups/3/members/8"))
+
     def test_publish_with_options_applies_visibility_and_shares(self):
         c = client([
             (json.dumps({"success": True, "service": {"name": "new"}}), 200),
@@ -510,6 +577,45 @@ class TileServicesTest(unittest.TestCase):
                          "https://geoi.de/x/5/{z}/{x}/{y}.webp")
         self.assertNotIn("wmts", urls)  # missing formats omitted
 
+
+class SharedServicesTest(unittest.TestCase):
+    """#981 — list tile / 3D-Tiles services shared WITH the signed-in user via
+    a group. Same list shape as the owned lists, hit with ?scope=shared."""
+
+    def test_shared_tile_services_hits_scope_shared(self):
+        c = client([(json.dumps({"ok": True, "services": [
+            {"id": 20, "title": "Team ortho", "visibility": "groups"},
+        ]}), 200)])
+        c.set_token("T")
+        svcs = c.shared_tile_services()
+        self.assertEqual(svcs[0]["title"], "Team ortho")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "GET")
+        self.assertTrue(
+            req.full_url.endswith("/platform/raster/services?scope=shared"))
+
+    def test_shared_tile_services_missing_or_malformed_is_empty(self):
+        for body in ({"ok": True}, {"services": "nope"}):
+            c = client([(json.dumps(body), 200)])
+            self.assertEqual(c.shared_tile_services(), [])
+
+    def test_shared_tiles3d_hits_scope_shared(self):
+        c = client([(json.dumps({"ok": True, "services": [
+            {"id": 30, "title": "Team scan", "visibility": "groups"},
+        ]}), 200)])
+        c.set_token("T")
+        svcs = c.shared_tiles3d()
+        self.assertEqual(svcs[0]["title"], "Team scan")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "GET")
+        self.assertTrue(
+            req.full_url.endswith("/platform/tiles3d/services?scope=shared"))
+
+    def test_shared_tiles3d_missing_or_malformed_is_empty(self):
+        for body in ({"ok": True}, {"services": 123}):
+            c = client([(json.dumps(body), 200)])
+            self.assertEqual(c.shared_tiles3d(), [])
+
     def test_tile_services_feature_off_maps_via_friendly_error(self):
         c = client([(json.dumps({"error": "feature_off"}), 200)])
         with self.assertRaises(GeoiError) as ctx:
@@ -579,6 +685,147 @@ class TileServiceManageTest(unittest.TestCase):
         self.assertIn("quota", geoi_client.friendly_error(ctx.exception))
 
 
+class BulkShareClientTest(unittest.TestCase):
+    """PR-B group-share / visibility wrappers for Tile Services and 3D-Tiles
+    Services — each asserts the exact HTTP method, URL and JSON body, mirroring
+    the existing feature-service share-method tests."""
+
+    def _body(self, req):
+        return json.loads(req.data.decode("utf-8"))
+
+    def test_share_tile_service_with_group(self):
+        c = client([(json.dumps({"ok": True, "service": {"id": 5}}), 200)])
+        c.set_token("T")
+        c.share_tile_service_with_group(5, 7)
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertTrue(req.full_url.endswith("/platform/raster/services/5/shares"))
+        self.assertEqual(self._body(req), {"groupId": 7})
+
+    def test_unshare_tile_service_group(self):
+        c = client([(json.dumps({"ok": True}), 200)])
+        c.set_token("T")
+        self.assertTrue(c.unshare_tile_service_group(5, 7))
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "DELETE")
+        self.assertTrue(req.full_url.endswith("/platform/raster/services/5/shares/7"))
+
+    def test_set_tiles3d_visibility(self):
+        c = client([(json.dumps({"ok": True, "service": {
+            "id": 3, "visibility": "groups"}}), 200)])
+        c.set_token("T")
+        svc = c.set_tiles3d_visibility(3, "groups")
+        self.assertEqual(svc["visibility"], "groups")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertTrue(req.full_url.endswith("/platform/tiles3d/services/3"))
+        self.assertEqual(self._body(req), {"visibility": "groups"})
+
+    def test_share_tiles3d_with_group(self):
+        c = client([(json.dumps({"ok": True, "service": {"id": 3}}), 200)])
+        c.set_token("T")
+        c.share_tiles3d_with_group(3, 9)
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertTrue(req.full_url.endswith("/platform/tiles3d/services/3/shares"))
+        self.assertEqual(self._body(req), {"groupId": 9})
+
+    def test_unshare_tiles3d_group(self):
+        c = client([(json.dumps({"ok": True}), 200)])
+        c.set_token("T")
+        self.assertTrue(c.unshare_tiles3d_group(3, 9))
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "DELETE")
+        self.assertTrue(req.full_url.endswith("/platform/tiles3d/services/3/shares/9"))
+
+
+class DiscoverTest(unittest.TestCase):
+    """WS3b — ``discover()`` builds the right GET and normalises the response
+    into ``{services, projects, tiles, tiles3d}`` (fail-soft [] per kind)."""
+
+    def test_builds_get_with_all_params(self):
+        c = client([(json.dumps({"ok": True, "q": "road", "kind": "all",
+                                 "results": {"services": [{"name": "roads"}],
+                                             "projects": [], "tiles": [],
+                                             "tiles3d": []}}), 200)])
+        c.set_token("T")
+        out = c.discover(q="road", kind="all", limit=25, offset=0)
+        self.assertEqual(out["services"], [{"name": "roads"}])
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "GET")
+        self.assertTrue(req.full_url.endswith(
+            "/platform/hub/discover?q=road&kind=all&limit=25&offset=0"),
+            req.full_url)
+
+    def test_kind_and_paging_params_passed_through(self):
+        c = client([(json.dumps({"ok": True, "results": {}}), 200)])
+        c.discover(q="a b", kind="tiles3d", limit=10, offset=20)
+        req = c._opener.requests[0]
+        self.assertIn("q=a+b", req.full_url)
+        self.assertIn("kind=tiles3d", req.full_url)
+        self.assertIn("limit=10", req.full_url)
+        self.assertIn("offset=20", req.full_url)
+
+    def test_all_four_buckets_returned(self):
+        c = client([(json.dumps({"ok": True, "results": {
+            "services": [{"name": "s"}], "projects": [{"id": 1}],
+            "tiles": [{"id": 2}], "tiles3d": [{"id": 3}]}}), 200)])
+        out = c.discover(q="x")
+        self.assertEqual(set(out), {"services", "projects", "tiles", "tiles3d"})
+        self.assertEqual(out["tiles3d"], [{"id": 3}])
+
+    def test_missing_or_malformed_results_is_empty_lists(self):
+        for body in ({"ok": True}, {"results": "nope"},
+                     {"results": {"services": "bad"}}):
+            c = client([(json.dumps(body), 200)])
+            out = c.discover(q="x")
+            self.assertEqual(out, {"services": [], "projects": [],
+                                   "tiles": [], "tiles3d": []})
+
+    def test_error_is_fail_soft_empty(self):
+        # A transport / server error must degrade to empty buckets, never raise.
+        c = client([(json.dumps({"error": "boom"}), 500)])
+        self.assertEqual(c.discover(q="x"),
+                         {"services": [], "projects": [],
+                          "tiles": [], "tiles3d": []})
+
+
+class Tiles3dRenameMoveClientTest(unittest.TestCase):
+    """WS2 — 3D-Tiles rename/move POST /tiles3d/services/<id> with {title} /
+    {folderId} (raster parity)."""
+
+    def _body(self, req):
+        return json.loads(req.data.decode("utf-8"))
+
+    def test_rename_tiles3d_posts_title(self):
+        c = client([(json.dumps({"ok": True, "service": {
+            "id": 3, "title": "Renamed"}}), 200)])
+        c.set_token("T")
+        svc = c.rename_tiles3d(3, "Renamed")
+        self.assertEqual(svc["title"], "Renamed")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertTrue(req.full_url.endswith("/platform/tiles3d/services/3"))
+        self.assertEqual(self._body(req), {"title": "Renamed"})
+
+    def test_move_tiles3d_posts_folder_id(self):
+        c = client([(json.dumps({"ok": True, "service": {
+            "id": 3, "folderId": "f9"}}), 200)])
+        c.set_token("T")
+        svc = c.move_tiles3d(3, "f9")
+        self.assertEqual(svc["folderId"], "f9")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertTrue(req.full_url.endswith("/platform/tiles3d/services/3"))
+        self.assertEqual(self._body(req), {"folderId": "f9"})
+
+    def test_move_tiles3d_to_root_posts_empty(self):
+        c = client([(json.dumps({"ok": True, "service": {"id": 3}}), 200)])
+        c.set_token("T")
+        c.move_tiles3d(3, None)
+        self.assertEqual(self._body(c._opener.requests[0]), {"folderId": ""})
+
+
 class MultipartTest(unittest.TestCase):
     def test_encode_multipart_roundtrip_markers(self):
         body, ctype = geoi_client.encode_multipart(
@@ -587,6 +834,80 @@ class MultipartTest(unittest.TestCase):
         self.assertIn("boundary=", ctype)
         self.assertIn(b"DATA", body)
         self.assertIn(b'filename="a.json"', body)
+
+
+class FetchBytesTest(unittest.TestCase):
+    """``fetch_bytes`` GETs an ABSOLUTE url verbatim (no platform prefix),
+    attaches the bearer only when asked, honours ``max_bytes``, and returns
+    raw bytes. ``tiles3d_tileset_json`` parses it fail-soft."""
+
+    def test_get_uses_url_verbatim_no_platform_prefix(self):
+        c = client([(b"RAWBYTES", 200)])
+        c.set_token("SESS")
+        out = c.fetch_bytes("https://cdn.example.com/t/5/0.glb?token=SEKRET")
+        self.assertEqual(out, b"RAWBYTES")
+        req = c._opener.requests[0]
+        self.assertEqual(req.get_method(), "GET")
+        # verbatim: NOT rewritten to base_url + "/platform/..."
+        self.assertEqual(
+            req.full_url, "https://cdn.example.com/t/5/0.glb?token=SEKRET")
+
+    def test_bearer_attached_when_auth_and_token(self):
+        c = client([(b"X", 200)])
+        c.set_token("SESS")
+        c.fetch_bytes("https://geoi.de/t/0.glb")
+        headers = {k.lower(): v for k, v in c._opener.requests[0].header_items()}
+        self.assertEqual(headers["authorization"], "Bearer SESS")
+
+    def test_no_bearer_when_auth_false(self):
+        c = client([(b"X", 200)])
+        c.set_token("SESS")
+        c.fetch_bytes("https://geoi.de/t/0.glb", auth=False)
+        headers = {k.lower(): v for k, v in c._opener.requests[0].header_items()}
+        self.assertNotIn("authorization", headers)
+
+    def test_no_bearer_when_no_token(self):
+        c = client([(b"X", 200)])
+        c.fetch_bytes("https://geoi.de/t/0.glb")
+        headers = {k.lower(): v for k, v in c._opener.requests[0].header_items()}
+        self.assertNotIn("authorization", headers)
+
+    def test_max_bytes_caps_the_read(self):
+        c = client([(b"A" * 500, 200)])
+        out = c.fetch_bytes("https://geoi.de/t/0.glb", max_bytes=10)
+        self.assertEqual(out, b"A" * 10)
+
+    def test_http_error_raises_geoi_error(self):
+        c = client([(b"nope", 404)])
+        with self.assertRaises(GeoiError) as ctx:
+            c.fetch_bytes("https://geoi.de/t/0.glb")
+        self.assertEqual(ctx.exception.status, 404)
+
+    def test_logs_redacted_url_never_the_token(self):
+        msgs = []
+        c = GeoiClient(base_url="https://geoi.de",
+                       opener=FakeOpener([(b"X", 200)]), log=msgs.append)
+        c.set_token("SESS")
+        c.fetch_bytes("https://geoi.de/t/0.glb?token=SEKRET")
+        self.assertTrue(msgs)
+        self.assertTrue(
+            all("SEKRET" not in m and "token=" not in m for m in msgs), msgs)
+
+    def test_tileset_json_parses_valid_json(self):
+        c = client([(json.dumps(
+            {"root": {"content": {"uri": "0.glb"}}}), 200)])
+        tileset = c.tiles3d_tileset_json("https://geoi.de/t/tileset.json")
+        self.assertEqual(tileset["root"]["content"]["uri"], "0.glb")
+
+    def test_tileset_json_bad_json_is_empty_dict(self):
+        c = client([(b"<html>not json</html>", 200)])
+        self.assertEqual(
+            c.tiles3d_tileset_json("https://geoi.de/t/x.json"), {})
+
+    def test_tileset_json_fetch_error_is_empty_dict(self):
+        c = client([(b"boom", 500)])
+        self.assertEqual(
+            c.tiles3d_tileset_json("https://geoi.de/t/x.json"), {})
 
 
 if __name__ == "__main__":

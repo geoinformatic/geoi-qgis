@@ -451,5 +451,71 @@ class ToPmtilesMbtilesCleanupTest(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ------------------------------------------------ WS1: action-bar grid layout
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import panel_stub  # noqa: E402
+
+
+class _RecCtrl:
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, name):
+        def rec(*a, **k):
+            self.calls.append((name,) + a)
+        return rec
+
+
+class ActionBarGridTest(unittest.TestCase):
+    """WS1 — the seven action buttons are laid out in the redesigned two-column
+    grid with equal column stretch, and the two Publish siblings share a row."""
+
+    def setUp(self):
+        self.bp, self._cleanup = panel_stub.install()
+        self.panel = self.bp.GeoiPanel(_RecCtrl())
+        self.grid = panel_stub._Grid.instances[0]
+
+    def tearDown(self):
+        self._cleanup()
+
+    def test_buttons_are_at_the_documented_grid_coords(self):
+        coords = {
+            "_add_btn": (0, 0, 1, 2),
+            "_publish_btn": (2, 0, 1, 1),
+            "_publish_raster_btn": (2, 1, 1, 1),
+            "_publish_tiles3d_btn": (3, 0, 1, 2),
+            "_save_btn": (5, 0, 1, 1),
+            "_folder_btn": (5, 1, 1, 1),
+            "_groups_btn": (6, 0, 1, 1),
+            "_refresh_btn": (6, 1, 1, 1),
+        }
+        for attr, expected in coords.items():
+            btn = getattr(self.panel, attr)
+            self.assertEqual(self.grid.at(btn), expected,
+                             "{} at wrong grid cell".format(attr))
+
+    def test_columns_have_equal_stretch(self):
+        self.assertEqual(self.grid.stretch.get(0), self.grid.stretch.get(1))
+        self.assertEqual(self.grid.stretch.get(0), 1)
+
+    def test_publish_siblings_share_one_row_one_per_column(self):
+        vec = self.grid.at(self.panel._publish_btn)
+        ras = self.grid.at(self.panel._publish_raster_btn)
+        self.assertEqual(vec[0], ras[0], "the two Publish buttons share a row")
+        self.assertNotEqual(vec[1], ras[1], "one Publish per column")
+        self.assertEqual((vec[1], ras[1]), (0, 1))
+
+    def test_primary_add_button_spans_both_columns(self):
+        self.assertEqual(self.grid.at(self.panel._add_btn), (0, 0, 1, 2))
+
+    def test_no_action_button_was_removed(self):
+        # All seven+ actions still exist and are wired.
+        for attr in ("_add_btn", "_publish_btn", "_publish_raster_btn",
+                     "_publish_tiles3d_btn", "_save_btn", "_folder_btn",
+                     "_groups_btn", "_refresh_btn"):
+            self.assertIsNotNone(self.grid.at(getattr(self.panel, attr)),
+                                 attr + " must be in the grid")
+
+
 if __name__ == "__main__":
     unittest.main()

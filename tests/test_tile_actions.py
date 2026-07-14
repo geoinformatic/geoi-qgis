@@ -58,14 +58,14 @@ def _bare_plugin():
 
     for name, names in (
         ("geoi.gui.browser_panel", ["GeoiPanel"]),
-        ("geoi.gui.dialogs", ["FeedbackDialog", "ManageGroupsDialog",
-                              "MoveToFolderDialog", "PublishDialog",
-                              "PublishRasterDialog", "SaveProjectDialog",
-                              "SettingsDialog", "ShareDialog"]),
+        ("geoi.gui.dialogs", ["FeedbackDialog", "MoveToFolderDialog",
+                              "PublishDialog", "PublishRasterDialog",
+                              "SaveProjectDialog", "SettingsDialog",
+                              "ShareDialog", "ManageGroupsDialog"]),
         ("geoi.auth", ["SessionStore"]),
-        ("geoi.tasks", ["ActionTask", "CatalogTask", "DiscoverTask",
-                        "PublishTask", "RasterPublishTask", "SaveProjectTask",
-                        "SignInTask", "Tiles3dPublishTask"]),
+        ("geoi.tasks", ["ActionTask", "BasemapsTask", "CatalogTask", "DiscoverTask", "PublishTask",
+                        "RasterPublishTask", "SaveProjectTask", "SignInTask",
+                        "Tiles3dPublishTask"]),
     ):
         m = types.ModuleType(name)
         for n in names:
