@@ -7,6 +7,10 @@ byte-identical.
 
 Pure Python (no QGIS) — runs standalone:
     python3 -m unittest tests.test_public_metadata_rewrite
+
+`tools/` is geoi-only (the publish workflow syncs `geoi/`, `tests/` and
+`scripts/` to geoi-qgis, never `tools/`), so this file SKIPS there instead of
+failing to import.
 """
 
 import os
@@ -16,7 +20,10 @@ import unittest
 # Make `tools/` importable when run from qgis-plugin/.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tools.rewrite_public_metadata import rewrite, PUBLIC_URLS  # noqa: E402
+try:
+    from tools.rewrite_public_metadata import rewrite, PUBLIC_URLS
+except ImportError:
+    rewrite = PUBLIC_URLS = None
 
 
 # A representative metadata.txt with the MONOREPO url values (what the committed
@@ -44,6 +51,10 @@ changelog=1.6.0 — Redesigned action bar. 1.5.0 — Manage groups from QGIS.
 """
 
 
+@unittest.skipUnless(
+    rewrite is not None,
+    "tools/rewrite_public_metadata is geoi-only (not synced to geoi-qgis) — skip there",
+)
 class RewritePublicMetadata(unittest.TestCase):
     def setUp(self):
         self.out = rewrite(GEOI_INPUT)
