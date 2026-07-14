@@ -254,11 +254,13 @@ class GeoiClient:
 
         ``GET /hub/discover?q=&kind=&limit=&offset=`` -> ``{ok, q, kind,
         results:{services, projects, tiles, tiles3d}}`` where each row is that
-        registry's existing list-row shape plus ``visibility:'public'`` and an
-        ``ownerName``. Returns the normalised ``{services, projects, tiles,
-        tiles3d}`` dict, FAIL-SOFT: any transport / server error or a missing /
-        malformed bucket degrades to an empty list per kind (so a public search
-        never breaks the panel). ``timeout`` bounds the call for the off-thread
+        registry's existing list-row shape plus ``visibility:'public'`` and a
+        ``created`` publication timestamp. NO owner PII (name / email) is read
+        or rendered — a discovered item is labelled only with its publication
+        date. Returns the normalised ``{services, projects, tiles, tiles3d}``
+        dict, FAIL-SOFT: any transport / server error or a missing / malformed
+        bucket degrades to an empty list per kind (so a public search never
+        breaks the panel). ``timeout`` bounds the call for the off-thread
         ``DiscoverTask``.
         """
         params = urllib.parse.urlencode({
@@ -279,6 +281,25 @@ class GeoiClient:
             rows = results.get(key)
             out[key] = rows if isinstance(rows, list) else []
         return out
+
+    # ------------------------------------------------------------- base maps
+    def basemaps(self, timeout=None):
+        """The platform's built-in base maps (F5, #1001).
+
+        ``GET /platform/basemaps`` (READ-ONLY, UNAUTHENTICATED) -> ``{basemaps:
+        [{id, name, url, subdomains, attribution, maxNativeZoom, type}, ...]}``.
+        These are app-wide, ownerless base layers (not user content), so no
+        bearer / sign-in is required. Returns the raw list. FAIL-SOFT (matching
+        ``discover``): any transport / server error or a missing / malformed
+        ``basemaps`` array degrades to ``[]`` so a missing endpoint never breaks
+        the content browser.
+        """
+        try:
+            res = self._request("GET", "/basemaps", timeout=timeout)
+        except GeoiError:
+            res = {}
+        rows = res.get("basemaps") if isinstance(res, dict) else None
+        return rows if isinstance(rows, list) else []
 
     # ---------------------------------------------------------- manage groups
     def _group_path(self, group_id, *suffix):
@@ -1010,7 +1031,9 @@ class GeoiClient:
             body = ""
             try:
                 body = (exc.read() or b"").decode("utf-8", "replace")[:200]
-            except Exception:  # noqa: BLE001
+            # security review: best-effort read of the error body for a
+            # nicer message; the HTTPError itself is already being raised
+            except Exception:  # nosec B110
                 pass
             raise GeoiError(
                 "Uploading the tiles to storage failed (HTTP {}). {}".format(
@@ -1125,7 +1148,8 @@ class GeoiClient:
         if self._log:
             try:
                 self._log(msg)
-            except Exception:  # noqa: BLE001 - diagnostics must never break a call
+            # security review: diagnostic logging must never break the API call
+            except Exception:  # nosec B110
                 pass
 
 

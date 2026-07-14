@@ -27,7 +27,8 @@ import os
 import re
 import shutil
 import struct
-import subprocess
+# security review: see _laz_via_pdal below — fixed executable, list-form argv
+import subprocess  # nosec B404
 import tempfile
 from array import array
 
@@ -345,7 +346,11 @@ def _laz_via_pdal(data):
         dst = os.path.join(tmp, "out.las")
         with open(src, "wb") as fh:
             fh.write(data)
-        subprocess.run([exe, "translate", src, dst], check=True,
+        # security review: `exe` is resolved via shutil.which("pdal") — a
+        # fixed, known executable name — never user input; list-form argv,
+        # no shell=True, and src/dst are paths this function created itself
+        # inside its own mkdtemp() sandbox, so there is no injection surface.
+        subprocess.run([exe, "translate", src, dst], check=True,  # nosec B603
                        capture_output=True, timeout=600)
         with open(dst, "rb") as fh:
             return fh.read()

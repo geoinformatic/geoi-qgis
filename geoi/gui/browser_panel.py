@@ -121,7 +121,16 @@ class GeoiPanel(_Dock):
         # rows are cached so switching modes never refetches.
         self._mode = "mine"
         self._last_catalog = None
+        # ``_discover_rows`` is whatever is CURRENTLY loaded into the tree (the
+        # full recent page, or a server-search result). ``_discover_full`` caches
+        # the empty-query "all categories" page so re-entering Discover / clearing
+        # the box restores it instantly without a refetch (F2, #1001).
         self._discover_rows = None
+        self._discover_full = None
+        # Platform base maps (F5, #1001) — an always-visible, ownerless top-level
+        # category in the My-content tree, populated by ``set_basemaps`` (needs
+        # no sign-in). Cached so a tree rebuild keeps showing it.
+        self._basemaps = []
 
         root = QWidget()
         layout = QVBoxLayout(root)
@@ -191,7 +200,8 @@ class GeoiPanel(_Dock):
             self._search.addAction(
                 self._std_icon(QStyle.StandardPixmap.SP_FileDialogContentsView),
                 pos)
-        except Exception:  # noqa: BLE001 - the icon is cosmetic
+        # security review: the search-box icon is purely cosmetic
+        except Exception:  # nosec B110
             pass
         # ~300 ms debounce: a keystroke restarts the timer; its timeout fires
         # the off-thread DiscoverTask. Live client-side filtering of the already
@@ -359,7 +369,36 @@ class GeoiPanel(_Dock):
         self._folders = []
         self._signed_in = False
         self.set_storage(None)
+        # Base maps need no sign-in — keep the always-visible category showing.
+        self._append_basemaps()
         self._update_buttons()
+
+    def set_basemaps(self, basemaps):
+        """Store the platform base maps (F5, #1001) and re-render the current
+        My-content view so the always-visible "Base Maps" category appears.
+        Ownerless / unauthenticated — shown regardless of sign-in state."""
+        self._basemaps = list(basemaps or [])
+        if self._mode == "mine":
+            self._render_mine()
+
+    def _append_basemaps(self):
+        """Append the always-visible "Base Maps" top-level category (F5) to the
+        tree from the cached base maps. A no-op outside My-content mode or when
+        no base maps are loaded (a failed/absent fetch just omits the bucket)."""
+        if self._mode != "mine" or not self._basemaps:
+            return
+        node = {
+            "kind": "category",
+            "category": "basemap",
+            "title": "Base Maps",
+            "children": [{"kind": "basemap", "payload": bm}
+                         for bm in self._basemaps],
+        }
+        self._loading = True
+        try:
+            self._tree.addTopLevelItem(self._build_item(node))
+        finally:
+            self._loading = False
 
     def set_storage(self, storage):
         """Show/refresh the muted storage-overview line under the account row.
@@ -426,6 +465,8 @@ class GeoiPanel(_Dock):
         else:
             self.set_busy("{} services · {} projects · {} folders".format(
                 n_svc, n_proj, len(self._folders)))
+        # Always-visible, ownerless base maps (F5) sit below the user's content.
+        self._append_basemaps()
         self._update_buttons()
 
     def _std_icon(self, pixmap):
@@ -456,6 +497,7 @@ class GeoiPanel(_Dock):
         "folder": "SP_DirIcon",
         "category": "SP_FileDialogListView",
         "shared": "SP_DriveNetIcon",
+        "basemap": "SP_DriveNetIcon",
     }
 
     def _icon(self, kind, payload=None):
@@ -506,18 +548,23 @@ class GeoiPanel(_Dock):
         # owner-only actions on these flags via the action registry).
         shared = bool(node.get("shared"))
         read_only = shared or discover
+        # A discovered item is labelled by its publication date (no owner PII,
+        # #1001); "" when the row carries no parseable ``created`` — then the
+        # second column falls back to the visibility, as before.
+        pub = _pub_date(node.get("payload") or {}) if discover else ""
         if kind == "tile":
             payload = node["payload"]
             vis = payload.get("visibility", "") or "private"
-            item = QTreeWidgetItem([_title(payload), vis])
+            item = QTreeWidgetItem([_title(payload), pub or vis])
             item.setIcon(0, self._icon("tile"))
             item.setData(0, ROLE_KIND, "tile")
             item.setData(0, ROLE_NAME, _title(payload))
             item.setData(0, ROLE_PAYLOAD, payload)
             item.setData(0, ROLE_SHARED, shared)
             item.setData(0, ROLE_DISCOVER, discover)
-            item.setToolTip(0, ("Shared tile service · " if shared
-                                else "Tile service · ") + vis)
+            item.setToolTip(0, ("Public tile service · published " + pub) if pub
+                            else (("Shared tile service · " if shared
+                                   else "Tile service · ") + vis))
             # Owned: inline rename + drag-move, never a drop target. Shared /
             # discovered: read-only (no rename / drag).
             flags = item.flags() & ~Qt.ItemFlag.ItemIsDropEnabled
@@ -531,15 +578,16 @@ class GeoiPanel(_Dock):
         if kind == "tiles3d":
             payload = node["payload"]
             vis = payload.get("visibility", "") or "private"
-            item = QTreeWidgetItem([_title(payload), vis])
+            item = QTreeWidgetItem([_title(payload), pub or vis])
             item.setIcon(0, self._icon("tiles3d"))
             item.setData(0, ROLE_KIND, "tiles3d")
             item.setData(0, ROLE_NAME, _title(payload))
             item.setData(0, ROLE_PAYLOAD, payload)
             item.setData(0, ROLE_SHARED, shared)
             item.setData(0, ROLE_DISCOVER, discover)
-            item.setToolTip(0, ("Shared 3D Tiles service · " if shared
-                                else "3D Tiles service · ") + vis)
+            item.setToolTip(0, ("Public 3D Tiles service · published " + pub) if pub
+                            else (("Shared 3D Tiles service · " if shared
+                                   else "3D Tiles service · ") + vis))
             # OWNED (not shared / discovered): inline rename + drag-move (the
             # rename/move client endpoints exist now — WS2); read-only
             # otherwise. Never a drop target.
@@ -550,6 +598,23 @@ class GeoiPanel(_Dock):
             else:
                 flags |= Qt.ItemFlag.ItemIsEditable \
                     | Qt.ItemFlag.ItemIsDragEnabled
+            item.setFlags(flags)
+            return item
+        if kind == "basemap":
+            # A platform base map (F5): ownerless, always read-only — no rename,
+            # no drag, never a drop target. Double-click / "Add to map" adds it
+            # as a native XYZ raster layer.
+            payload = node["payload"]
+            name = payload.get("name") or payload.get("id") or "Base map"
+            item = QTreeWidgetItem([name, "base map"])
+            item.setIcon(0, self._icon("basemap"))
+            item.setData(0, ROLE_KIND, "basemap")
+            item.setData(0, ROLE_NAME, name)
+            item.setData(0, ROLE_PAYLOAD, payload)
+            item.setToolTip(0, "Base map · double-click to add to the map")
+            flags = item.flags() & ~Qt.ItemFlag.ItemIsEditable \
+                & ~Qt.ItemFlag.ItemIsDropEnabled \
+                & ~Qt.ItemFlag.ItemIsDragEnabled
             item.setFlags(flags)
             return item
         if kind == "folder":
@@ -568,14 +633,17 @@ class GeoiPanel(_Dock):
         vis = payload.get("visibility", "")
         if kind == "service" and payload.get("editable"):
             vis = (vis + " · editable").strip(" ·")
-        item = QTreeWidgetItem([_title(payload), vis])
+        item = QTreeWidgetItem([_title(payload), pub or vis])
         item.setIcon(0, self._icon(kind, payload))
         item.setData(0, ROLE_KIND, kind)
         item.setData(0, ROLE_NAME, _title(payload))
         item.setData(0, ROLE_PAYLOAD, payload)
         item.setData(0, ROLE_SHARED, shared)
         item.setData(0, ROLE_DISCOVER, discover)
-        if kind == "service":
+        if pub:
+            label = "Feature service" if kind == "service" else "Web map"
+            tip = "Public {} · published {}".format(label.lower(), pub)
+        elif kind == "service":
             tip = "Double-click to add to the map · " + (vis or "private")
         else:
             tip = "Project · " + (payload.get("visibility", "") or "private")
@@ -640,51 +708,73 @@ class GeoiPanel(_Dock):
     def _set_mode(self, mode):
         """Switch between "mine" (the user's content) and "discover" (public
         search). Switching back to "mine" re-renders the CACHED catalogue with
-        no refetch; switching to "discover" reveals the search box."""
+        no refetch; switching to "discover" reveals the search box and shows
+        ALL public categories immediately (F2) — the search box then filters."""
         self._mode = "discover" if mode == "discover" else "mine"
         is_disc = self._mode == "discover"
         self._search.setVisible(is_disc)
         self._mode_mine.setChecked(not is_disc)
         self._mode_disc.setChecked(is_disc)
         if is_disc:
-            self._discover_rows = None
             query = (self._search.text() or "").strip()
             if query:
                 self._on_search_changed(query)
             else:
-                self._tree.clear()
-                self.set_busy("Type to search geoi's public content.")
+                self._enter_discover_default()
         else:
             self._search_timer.stop()
             self._render_mine()
 
+    def _enter_discover_default(self):
+        """Show ALL four public categories for an EMPTY query (F2, #1001).
+
+        The server returns a bounded "recent public" page per kind for an empty
+        ``q``. The cached full page (``_discover_full``) re-renders instantly on
+        a re-entry / a cleared box; otherwise a one-off empty-query fetch loads
+        it. Typing then narrows this page (client-side filter + server search);
+        clearing restores it — never an empty state."""
+        self._search_timer.stop()
+        if self._discover_full is not None:
+            self._discover_rows = {k: list(v)
+                                   for k, v in self._discover_full.items()}
+            self._render_discover_rows(self._discover_rows, "")
+        else:
+            self._tree.clear()
+            self.set_busy("Loading public content…")
+            self._c.search_discover("")
+
     def _render_mine(self):
-        """Re-render the cached "My content" catalogue (no refetch)."""
+        """Re-render the cached "My content" catalogue (no refetch). ``populate``
+        appends the Base Maps category itself; the no-catalogue branch (signed
+        out / not loaded yet) still shows it (F5)."""
         if self._last_catalog is not None:
             self.populate(self._last_catalog)
         else:
             self._tree.clear()
             self.set_busy("")
+            self._append_basemaps()
 
     def _on_search_changed(self, text):
         """A keystroke in the Discover box: filter the already-loaded rows
-        INSTANTLY (snappy), then debounce the off-thread public search."""
+        INSTANTLY (snappy), then debounce the off-thread public search. An
+        EMPTY box restores the full, unfiltered page (all four categories),
+        never an empty state (F2)."""
         if self._mode != "discover":
             return
         query = (text or "").strip()
+        self._search_timer.stop()
+        if not query:
+            self._enter_discover_default()
+            return
         if self._discover_rows is not None:
             self._render_filtered(query)
-        self._search_timer.stop()
-        if query:
-            self._search_timer.start()
-        else:
-            self._tree.clear()
-            self.set_busy("Type to search geoi's public content.")
+        self._search_timer.start()
 
     def _fire_discover(self):
         """Debounce timeout: run the off-thread public search via the
         controller for the current query (ignored when empty / not in
-        Discover mode)."""
+        Discover mode — an empty box is handled by ``_enter_discover_default``,
+        not the debounce)."""
         if self._mode != "discover":
             return
         query = (self._search.text() or "").strip()
@@ -709,6 +799,12 @@ class GeoiPanel(_Dock):
             key: list(results.get(key) or [])
             for key in ("services", "projects", "tiles", "tiles3d")
         }
+        # An empty-query response IS the full "all categories" page — cache it
+        # so re-entering Discover / clearing the box restores it with no
+        # refetch (F2).
+        if not (query or "").strip():
+            self._discover_full = {k: list(v)
+                                   for k, v in self._discover_rows.items()}
         self._render_discover_rows(self._discover_rows, query)
 
     def _render_filtered(self, query):
@@ -747,7 +843,7 @@ class GeoiPanel(_Dock):
         if total == 0:
             self.set_busy(
                 "No public content matches '{}'.".format(query) if query
-                else "Type to search geoi's public content.")
+                else "No public content available yet.")
         else:
             self.set_busy("{} public result{}".format(
                 total, "" if total == 1 else "s"))
@@ -784,6 +880,8 @@ class GeoiPanel(_Dock):
             self._c.add_tiles3d_layer(payload)
         elif kind == "project":
             self._c.add_project(payload)
+        elif kind == "basemap":
+            self._c.add_basemap(payload)
 
     def _move_to(self, item, folder_id):
         kind = item.data(0, ROLE_KIND)
@@ -851,8 +949,10 @@ class GeoiPanel(_Dock):
         # context menu, not "Add to map" for N items).
         items = self._tree.selectedItems()
         kind = items[0].data(0, ROLE_KIND) if len(items) == 1 else None
+        # Base maps are ownerless / unauthenticated — addable even signed out.
         self._add_btn.setEnabled(
-            signed and kind in ("service", "project", "tile", "tiles3d"))
+            kind == "basemap"
+            or (signed and kind in ("service", "project", "tile", "tiles3d")))
         self._folder_btn.setEnabled(signed)
         self._groups_btn.setEnabled(signed)
         self._refresh_btn.setEnabled(signed)
@@ -864,6 +964,34 @@ class GeoiPanel(_Dock):
 
 def _title(entry):
     return entry.get("title") or entry.get("name") or str(entry.get("id", ""))
+
+
+def _pub_date(payload):
+    """Short publication date (``YYYY-MM-DD``) from a discovered row's
+    ``created`` field, or "" when it is absent / unparseable.
+
+    A discovered public item is labelled ONLY by its publication date — never
+    by an owner name or email address (no owner PII, #1001). ``created`` may
+    be epoch seconds / milliseconds or an ISO-8601 timestamp string; anything
+    unrecognised degrades to "" so a bad value simply hides the date, never
+    breaks the row.
+    """
+    raw = (payload or {}).get("created")
+    if raw in (None, ""):
+        return ""
+    import datetime as _dt
+    try:
+        if isinstance(raw, bool):
+            return ""
+        if isinstance(raw, (int, float)) or str(raw).strip().isdigit():
+            ts = float(raw)
+            if ts > 1e11:  # milliseconds since the epoch
+                ts /= 1000.0
+            return _dt.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+        # An ISO-8601 string ("2026-07-14T09:30:00Z") — the leading date part.
+        return str(raw).strip()[:10]
+    except Exception:  # noqa: BLE001 - date is cosmetic; a bad value hides it
+        return ""
 
 
 # ------------------------------------------------------------- action registry
@@ -984,7 +1112,7 @@ _ITEM_ACTIONS = [
     # Add to map — shared: service/project always, and ANY discovered item
     # (dispatched per kind by ``_add_to_map``).
     _Action("Add to map",
-            lambda k, p, s, d: bool(d) or k in ("service", "project"),
+            lambda k, p, s, d: bool(d) or k in ("service", "project", "basemap"),
             _h_add),
     _Action("Add as XYZ layer",
             lambda k, p, s, d: k == "tile" and not d, _h_add_xyz),

@@ -37,6 +37,7 @@ from .gui.dialogs import (
 from .tasks import (
     SIGNIN_DISABLED,
     ActionTask,
+    BasemapsTask,
     CatalogTask,
     DiscoverTask,
     PublishTask,
@@ -59,6 +60,10 @@ class GeoiPlugin:
         self._feedback_action = None
         self._tasks = set()
         self._groups = []
+        # Base maps (F5) are loaded once, lazily, the first time the panel is
+        # shown — never at startup (mirrors the no-forced-network _restore_session
+        # philosophy). Public + fail-soft.
+        self._basemaps_loaded = False
 
     def _log_msg(self, msg):
         """Write a diagnostic line to the 'geoi' tab of the Log Messages panel."""
@@ -66,7 +71,8 @@ class GeoiPlugin:
             from qgis.core import QgsMessageLog
 
             QgsMessageLog.logMessage(str(msg), "geoi")
-        except Exception:  # noqa: BLE001
+        # security review: diagnostic logging must never break the caller
+        except Exception:  # nosec B110
             pass
 
     # ----------------------------------------------------------- lifecycle
@@ -80,6 +86,8 @@ class GeoiPlugin:
         self._action.setCheckable(True)
         self._action.toggled.connect(self._panel.setVisible)
         self._panel.visibilityChanged.connect(self._action.setChecked)
+        # Load the always-visible base maps (F5) the first time the panel opens.
+        self._panel.visibilityChanged.connect(self._on_panel_visibility)
         self.iface.addToolBarIcon(self._action)
         self.iface.addPluginToWebMenu("geoi", self._action)
 
@@ -89,6 +97,13 @@ class GeoiPlugin:
         self.iface.addPluginToWebMenu("geoi", self._feedback_action)
 
         self._restore_session()
+
+    def _on_panel_visibility(self, visible):
+        """Lazy-load the platform base maps (F5) the first time the panel is
+        shown — public + fail-soft, so it never blocks the reveal."""
+        if visible and not self._basemaps_loaded:
+            self._basemaps_loaded = True
+            self.load_basemaps()
 
     def unload(self):
         if self._action is not None:
@@ -116,7 +131,8 @@ class GeoiPlugin:
         # QGIS 3 (Qt5) and QGIS 4 (Qt6, where level must be a Qgis enum, not int).
         try:
             self.iface.messageBar().pushInfo("geoi", text)
-        except Exception:  # noqa: BLE001 - messaging must never break a flow
+        # security review: message-bar notification must never break a flow
+        except Exception:  # nosec B110
             pass
 
     def _signed_in(self):
@@ -322,40 +338,48 @@ class GeoiPlugin:
         info = {}
         try:
             info["plugin_version"] = self._plugin_version()
-        except Exception:  # noqa: BLE001
+        # security review: plugin_version is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             from qgis.core import Qgis
             info["qgis"] = Qgis.QGIS_VERSION
-        except Exception:  # noqa: BLE001
+        # security review: qgis version is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             from qgis.PyQt.QtCore import QT_VERSION_STR
             info["qt"] = QT_VERSION_STR
-        except Exception:  # noqa: BLE001
+        # security review: Qt version is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             info["python"] = platform.python_version()
-        except Exception:  # noqa: BLE001
+        # security review: python version is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             info["os"] = platform.platform()
-        except Exception:  # noqa: BLE001
+        # security review: OS platform string is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             from qgis.PyQt.QtCore import QLocale
             info["locale"] = QLocale().name()
-        except Exception:  # noqa: BLE001
+        # security review: locale name is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             user = settings.session_user() or {}
             if user.get("email"):
                 info["account"] = user.get("email")
-        except Exception:  # noqa: BLE001
+        # security review: account email is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         try:
             info["base_url"] = settings.base_url()
-        except Exception:  # noqa: BLE001
+        # security review: base_url is an optional diagnostic field for Send feedback
+        except Exception:  # nosec B110
             pass
         return info
 
@@ -694,7 +718,8 @@ class GeoiPlugin:
                 QgsCoordinateReferenceSystem("EPSG:4326"),
                 layer.crs(), QgsProject.instance())
             layer.setExtent(xform.transformBoundingBox(rect))
-        except Exception:  # noqa: BLE001 - framing must never break the add
+        # security review: zooming/framing the new layer must never break the add
+        except Exception:  # nosec B110
             pass
 
     def copy_tile_url(self, payload, fmt):
@@ -761,7 +786,9 @@ class GeoiPlugin:
                     self._info("Visibility set to {}. Share URL copied:\n{}".format(
                         vis, url))
                     return
-                except Exception:  # noqa: BLE001
+                # security review: clipboard copy is best-effort; the
+                # visibility update itself already succeeded
+                except Exception:  # nosec B110
                     pass
             self._info("Visibility set to {}.".format(vis))
 
@@ -1187,7 +1214,7 @@ class GeoiPlugin:
                 self._add_layer_to_toc(vlayer, top=True)
                 added.append(vlayer)
         if added:
-            self._zoom_to_layers(added)
+            self._frame_service_extent(added, info)
             self._info("Added {} layer(s) from '{}'.".format(len(added), name))
         elif not self._signed_in():
             self._warn(
@@ -1203,6 +1230,98 @@ class GeoiPlugin:
                 "server error — try again, or check the service in the geoi web "
                 "app.".format(name),
             )
+
+    # ----------------------------------------------------------- base maps
+    def load_basemaps(self):
+        """Fetch the platform base maps off the GUI thread and hand them to the
+        panel's always-visible "Base Maps" category (F5, #1001).
+
+        UNAUTHENTICATED + fail-soft: an error just leaves the category absent,
+        never blocks or warns. Fired once when the panel is first shown, so it
+        adds no startup network cost."""
+        def done(ok, payload):
+            if ok and isinstance(payload, list):
+                self._panel.set_basemaps(payload)
+
+        task = BasemapsTask(self._client, done)
+        task.taskCompleted.connect(lambda: self._done(task))
+        task.taskTerminated.connect(lambda: self._done(task))
+        self._run(task)
+
+    def add_basemap(self, bm):
+        """Add a platform base map to the map as a native XYZ raster layer (F5).
+
+        ``bm`` is a ``/platform/basemaps`` entry. Base maps are app-wide and
+        ownerless (no auth), so this mirrors ``add_tile_layer``'s XYZ path:
+        build the QGIS ``type=xyz`` provider URI and drop the layer at the
+        BOTTOM of the layer tree (below vectors)."""
+        if not (bm or {}).get("url"):
+            return self._warn("geoi", "This base map has no tile URL.")
+        name = bm.get("name") or bm.get("id") or "Base map"
+        source = _basemap_xyz_source(bm)
+        layer = QgsRasterLayer(source, name, "wms")
+        if layer.isValid():
+            self._add_layer_to_toc(layer, top=False)
+            self._zoom_to_layers([layer])
+            self._info("Added base map '{}'.".format(name))
+        else:
+            self._warn(
+                "geoi",
+                "QGIS could not load the base map '{}'. Copy the XYZ URL and "
+                "add it via Layer → Add Layer → Add XYZ Layer instead.".format(
+                    name),
+            )
+
+    def _frame_service_extent(self, layers, info):
+        """Frame the map to the Feature Service's SERVER-declared full extent
+        (F4, #1001), falling back to the provider extent when the server bounds
+        are absent / degenerate.
+
+        The ArcGIS FeatureServer provider loads features ASYNCHRONOUSLY, so
+        ``_zoom_to_layers`` (which reads ``vlayer.extent()`` right after the add)
+        very often frames the WHOLE WORLD because the provider hasn't populated
+        the extent yet — the same async-extent bug fixed for Tile Services in
+        1.6.0. The FeatureServer ``info`` carries a real ``fullExtent`` /
+        ``initialExtent``; reproject it to the canvas CRS and frame from THAT.
+        """
+        rect = self._service_extent_rect(info)
+        if rect is not None:
+            try:
+                canvas = self.iface.mapCanvas()
+                canvas.setExtent(rect)
+                canvas.refresh()
+                return
+            # security review: framing must never break adding the layer
+            except Exception:  # nosec B110
+                pass
+        # No usable server extent — fall back to the provider's (async) extent.
+        self._zoom_to_layers(layers)
+
+    def _service_extent_rect(self, info):
+        """A canvas-CRS ``QgsRectangle`` from the FeatureServer root's declared
+        extent (F4), or ``None`` when it is absent / degenerate / unparseable.
+        Reprojects the server extent's own CRS to the canvas CRS."""
+        coords = _service_extent_coords(info)
+        if coords is None:
+            return None
+        xmin, ymin, xmax, ymax, src_epsg = coords
+        try:
+            from qgis.core import (
+                QgsCoordinateReferenceSystem,
+                QgsCoordinateTransform,
+                QgsProject,
+                QgsRectangle,
+            )
+
+            canvas = self.iface.mapCanvas()
+            dest_crs = canvas.mapSettings().destinationCrs()
+            xform = QgsCoordinateTransform(
+                QgsCoordinateReferenceSystem(src_epsg), dest_crs,
+                QgsProject.instance())
+            return xform.transformBoundingBox(
+                QgsRectangle(xmin, ymin, xmax, ymax))
+        except Exception:  # noqa: BLE001 - a bad extent falls back to provider
+            return None
 
     def _add_layer_to_toc(self, layer, *, top):
         """Add ``layer`` to the project and place it at the TOP or BOTTOM of
@@ -1251,7 +1370,8 @@ class GeoiPlugin:
             for vlayer in layers:
                 try:
                     vlayer.updateExtents()
-                except Exception:  # noqa: BLE001 - scene/raster layers lack it
+                # security review: updateExtents() is absent on scene/raster layers
+                except Exception:  # nosec B110
                     pass
                 extent = vlayer.extent()
                 if extent.isEmpty():
@@ -1269,7 +1389,8 @@ class GeoiPlugin:
         except Exception:  # noqa: BLE001 - framing must never break adding
             try:
                 self.iface.mapCanvas().refresh()
-            except Exception:  # noqa: BLE001
+            # security review: canvas refresh after a framing failure is cosmetic
+            except Exception:  # nosec B110
                 pass
 
     # ----------------------------------------------------- publish / save
@@ -1535,7 +1656,8 @@ class GeoiPlugin:
                 # straight into Cesium / ArcGIS.
                 try:
                     QApplication.clipboard().setText(url)
-                except Exception:  # noqa: BLE001 - clipboard is best-effort
+                # security review: clipboard copy is best-effort
+                except Exception:  # nosec B110
                     pass
                 QMessageBox.information(
                     self.iface.mainWindow(),
@@ -1621,7 +1743,8 @@ class GeoiPlugin:
             self._log_msg("Published 3D tiles '{}' -> {}".format(name, url))
             try:
                 QApplication.clipboard().setText(url)
-            except Exception:  # noqa: BLE001 - clipboard is best-effort
+            # security review: clipboard copy is best-effort
+            except Exception:  # nosec B110
                 pass
             summary = "3D Tiles service '{}' was published ({} of {} file(s)).".format(
                 name, len(jobs) - len(failures), len(jobs))
@@ -1763,7 +1886,8 @@ class GeoiPlugin:
 
                 if tiles3d.tileset_is_point_cloud(tileset, fetch_glb):
                     return self._warn_bar(_TILES3D_POINT_CLOUD_MSG)
-        except Exception:  # noqa: BLE001 - the sniff must never block a mesh add
+        # security review: the point-cloud sniff must never block adding a mesh tileset
+        except Exception:  # nosec B110
             pass
         name = _title(payload)
         try:
@@ -2093,6 +2217,89 @@ def _parse_bounds(bounds):
     except (TypeError, ValueError, KeyError):
         return None
     return (west, south, east, north)
+
+
+def _service_extent_coords(info):
+    """The FeatureServer root's SERVER-declared extent (F4, #1001).
+
+    Returns ``(xmin, ymin, xmax, ymax, epsg)`` from ``info['fullExtent']`` (or
+    ``initialExtent`` as a fallback) — ``epsg`` mapped from that extent's own
+    ``spatialReference`` (falling back to the service-level one), defaulting to
+    Web Mercator as geoi serves. Returns ``None`` when no extent dict is
+    present, an ordinate is non-numeric, or the box is degenerate
+    (``xmin>=xmax`` / ``ymin>=ymax``) — a genuine world extent is a valid,
+    non-degenerate box and still parses. Pure / stdlib so it is unit-testable
+    off QGIS.
+
+    Why: the ArcGIS FeatureServer QGIS provider loads features ASYNCHRONOUSLY,
+    so ``vlayer.extent()`` read right after the add is usually empty / the
+    whole-world default and the canvas zooms out to the whole world (the same
+    async-extent bug fixed for Tile Services in 1.6.0, different provider). The
+    FeatureServer ``info`` already carries a real, correct extent — frame from
+    THAT instead.
+    """
+    if not isinstance(info, dict):
+        return None
+    ext = None
+    for key in ("fullExtent", "initialExtent"):
+        cand = info.get(key)
+        if isinstance(cand, dict):
+            ext = cand
+            break
+    if ext is None:
+        return None
+    try:
+        xmin, ymin = float(ext["xmin"]), float(ext["ymin"])
+        xmax, ymax = float(ext["xmax"]), float(ext["ymax"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (xmin < xmax and ymin < ymax):
+        return None
+    sr = ext.get("spatialReference") or info.get("spatialReference")
+    return (xmin, ymin, xmax, ymax,
+            epsg_from_spatial_reference(sr, default="EPSG:3857"))
+
+
+def _basemap_xyz_source(bm):
+    """Build a QGIS ``type=xyz`` provider source string from a base-map entry
+    (F5, #1001).
+
+    ``bm`` is a ``/platform/basemaps`` row ``{url, subdomains, maxNativeZoom,
+    …}``. QGIS's XYZ provider does not expand a ``{s}`` subdomain placeholder,
+    so the FIRST subdomain is substituted in. ``subdomains`` arrives in THREE
+    shapes from the endpoint: a JSON array (``["1","2","3"]``), a comma/space
+    list string (``"a,b,c"``), or a Leaflet-style bare string (``"abc"``) — all
+    three yield their first element/character. A URL carrying ``{s}`` with NO
+    subdomains (``osm``/``topo``) defaults to ``"a"`` rather than leaving a
+    literal, QGIS-unexpanded ``{s}`` in the provider URI. The URL template is
+    percent-encoded into ``url=`` and ``maxNativeZoom`` becomes ``zmax`` when
+    present. Pure / stdlib so it is unit-testable off QGIS.
+    """
+    from urllib.parse import quote
+
+    url = str((bm or {}).get("url") or "")
+    raw = (bm or {}).get("subdomains")
+    if "{s}" in url:
+        first = ""
+        if isinstance(raw, (list, tuple)):
+            first = str(raw[0]).strip() if raw else ""
+        else:
+            subs = str(raw or "").strip()
+            if "," in subs:
+                first = subs.split(",")[0].strip()
+            elif " " in subs:
+                first = subs.split()[0]
+            elif subs:
+                first = subs[0]  # Leaflet-style "abc" -> 'a'
+        url = url.replace("{s}", first or "a")
+    source = "type=xyz&url=" + quote(url, safe="")
+    zmax = (bm or {}).get("maxNativeZoom")
+    try:
+        if zmax is not None:
+            source += "&zmax=" + str(int(zmax))
+    except (TypeError, ValueError):
+        pass
+    return source
 
 
 def _quote(value):

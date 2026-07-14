@@ -75,7 +75,8 @@ class SignInTask(_BaseTask):
                 raise _SigninDisabled("Sign-in is not enabled on this geoi server.")
         except _SigninDisabled:
             raise
-        except Exception:  # noqa: BLE001 - fail open: never block the browser
+        # security review: provider check must fail open: never block the browser
+        except Exception:  # nosec B110
             pass
 
         token = auth_mod.run_web_signin(
@@ -207,6 +208,25 @@ class DiscoverTask(_BaseTask):
         return self._client.discover(
             q=self._query, kind=self._kind, limit=self._limit,
             offset=self._offset, timeout=self.OPTIONAL_TIMEOUT)
+
+
+class BasemapsTask(_BaseTask):
+    """Fetch the platform's built-in base maps off the GUI thread (F5, #1001).
+
+    Mirrors ``DiscoverTask``: the ``/platform/basemaps`` call runs in ``work()``
+    with a SHORT ``OPTIONAL_TIMEOUT`` so a slow/absent endpoint never stalls the
+    panel. ``client.basemaps`` is UNAUTHENTICATED and fail-soft (``[]`` on any
+    error), so the callback receives the raw base-map list.
+    """
+
+    OPTIONAL_TIMEOUT = 5
+
+    def __init__(self, client, on_done):
+        super().__init__("geoi: loading base maps", on_done)
+        self._client = client
+
+    def work(self):
+        return self._client.basemaps(timeout=self.OPTIONAL_TIMEOUT)
 
 
 class PublishTask(_BaseTask):
