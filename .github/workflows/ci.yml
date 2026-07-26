@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-      - run: pip install flake8
+      - run: pip install flake8 bandit
       - name: Byte-compile every module
         run: python -m py_compile geoi/*.py geoi/gui/*.py geoi/_vendor/pmtiles/*.py tests/*.py
       - name: Lint
@@ -44,6 +44,10 @@ jobs:
           test -f geoi/LICENSE || { echo '::error::geoi/LICENSE is missing — plugins.qgis.org rejects the upload'; exit 1; }
           cmp -s LICENSE geoi/LICENSE || { echo '::error::geoi/LICENSE differs from the root LICENSE'; exit 1; }
           echo 'geoi/LICENSE present and matches root LICENSE.'
+      - name: Bandit security scan (plugins.qgis.org runs the same gate on upload)
+        run: |
+          bandit -r geoi
+          echo 'bandit: 0 issues.'
       - name: Unit tests (pure modules)
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Build installable zip

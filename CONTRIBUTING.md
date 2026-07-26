@@ -25,12 +25,19 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 # lint
 flake8 --max-line-length=100 --extend-ignore=E203,W503 geoi tests
 
+# security scan — plugins.qgis.org runs the same gate on upload
+bandit -r geoi           # must report 0 issues
+
 # build the installable zip
 scripts/package.sh        # -> dist/geoi.zip
 ```
 
 All of the above run in CI on every pull request, across QGIS 3.28 / 3.34 /
-latest.
+latest. The `bandit` scan mirrors the automated check plugins.qgis.org runs
+when the plugin is uploaded, so a green CI run means the release won't be
+blocked on it. Findings that are reviewed and intentional (e.g. deliberate
+fail-soft `try/except/pass`) must carry an inline `# nosec <ID>` with a short
+`# security review:` justification — never blanket-disable a test.
 
 ## Pull requests
 
