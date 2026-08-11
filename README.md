@@ -1,305 +1,189 @@
+<p align="center">
+  <img src="geoi/icon.svg" width="88" alt="geoi plugin icon">
+</p>
+
 <h1 align="center">geoi — QGIS plugin</h1>
 
 <p align="center">
-  Connect QGIS to a <a href="https://geoi.de">geoi</a> platform —
-  <strong>sign in</strong> (Google, Apple, Microsoft or ArcGIS), <strong>browse</strong>
-  your services and projects (and <strong>discover</strong> public content),
-  <strong>add</strong> your services as native layers, <strong>publish</strong>
-  or <strong>save</strong> QGIS projects, <strong>publish raster as
-  cloud-native tiles</strong>, and <strong>publish point clouds as 3D
-  Tiles</strong> back to geoi.
+  Publish QGIS layers and projects to your own <a href="https://www.geoi.de">geoi</a>
+  web GIS in one click — and bring the platform's content back into QGIS as native layers.
 </p>
 
 <p align="center">
-  <a href="https://github.com/geoinformatic/geoi-qgis/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/geoinformatic/geoi-qgis/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg"></a>
-  <img alt="QGIS 3.22 – 4.x" src="https://img.shields.io/badge/QGIS-3.22%20LTR%20%E2%86%92%204.x-589632.svg">
-  <img alt="Dependency-free" src="https://img.shields.io/badge/dependencies-none-brightgreen.svg">
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/github/license/geoinformatic/geoi-qgis"></a>
+  <img alt="QGIS 3.22+" src="https://img.shields.io/badge/QGIS-3.22%2B-589632">
+  <a href="https://github.com/geoinformatic/geoi-qgis/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/geoinformatic/geoi-qgis"></a>
 </p>
 
 ---
 
-The plugin is intentionally small, **dependency-free** (Python standard library +
-the QGIS API only — the one bundled component, a pure-Python PMTiles writer, is
-vendored), high-performance (native ArcGIS Feature Service provider + background
-tasks), and works across QGIS versions (**3.22 LTR → latest, Qt5 and Qt6**).
+The plugin connects QGIS to a geoi platform — [geoi.de](https://www.geoi.de) or
+your own self-hosted server. It is intentionally small and **dependency-free**
+(Python standard library + the QGIS API only; the one bundled component, a
+pure-Python PMTiles writer, is vendored), and it runs unchanged on QGIS 3.22 LTR
+through QGIS 4.x, Qt5 and Qt6.
+
+## Screenshots
+
+| The geoi panel in QGIS | The published result in the web app |
+|---|---|
+| ![The dockable geoi content browser in QGIS, showing folders, feature services, web maps, tile services and 3D-Tiles services](docs/screenshots/plugin-panel.png) | ![A project published from QGIS rendered in the geoi web app, with symbology and labels carried over](docs/screenshots/web-published-result.png) |
 
 ## Features
 
-- **Sign in — one click, zero configuration.** The plugin reuses your geoi
-  platform's **own** web sign-in: click *Sign in* and your system browser opens
-  the same sign-in page the web app shows, offering whichever providers your geoi
-  admin enabled (**Google, Apple, Microsoft, ArcGIS** — read live from the server,
-  nothing hardcoded); pick one and you're in. No OAuth client to create, no
-  settings. The 30-day session token is stored **encrypted** in the QGIS
-  authentication database (`QgsAuthManager`), never in plain text.
-- **Browse your own content** (services, projects, tile services, 3D-Tiles
-  services) in a dockable panel, organised by your **folder hierarchy**
-  (sub-folders and all) and by kind (Feature Services / Web Maps / Tile
-  Services / 3D-Tiles Services). The account row shows your **storage usage**
-  at a glance.
-- **Discover** — switch the panel to Discover mode to live-search geoi's
-  publicly shared content (Feature Services, Web Maps, Tile Services and
-  3D-Tiles Services) right alongside your own.
-- **Shared with me** — Tile Services and 3D-Tiles Services shared with you via
-  a group show up alongside your own; owner-only actions (rename, share,
-  move, delete) are hidden on items you don't own.
-- **Add a service** — double-click → it's added via QGIS's ArcGIS Feature
-  Service provider (server-side query / paging / BBOX; nothing is bulk-downloaded),
-  **in the service's own CRS** so editing round-trips correctly and the map
-  **frames the new layers** immediately. Private services authenticate
-  automatically via an injected `Authorization: Bearer` header. An **editable**
-  service can be edited in QGIS and the changes are saved back to geoi.
-- **Add a tile service** as a **WMTS** layer, or copy its XYZ / WMTS / PMTiles
-  URLs into QGIS. Web maps open in the geoi web app.
-- **Rename by clicking** — click a selected service, project or folder (or press
-  F2) to rename it inline.
-- **Organise** — drag a service or project onto a folder to move it; right-click
-  to *Move to folder…*, to **create / rename / delete** folders, and to
-  **delete** a service or project.
-- **Share** — right-click → *Share…* to set a service's or project's visibility
-  (private / a group / public) and pick which of your groups it's shared with;
-  withdraw a group share at any time. A published Feature Service can be
-  toggled **editable / read-only** after the fact. *Copy service URL* hands the
-  FeatureServer URL to ArcGIS / Field Maps. Unified menus mean rename, share,
-  move, copy URL and delete work the same way for every content type,
-  including 3D-Tiles Services.
-- **Multi-select and share several items at once** — select multiple items
-  (services, web maps, tile services, 3D-Tiles services) in the content
-  browser and share them all in a single dialog.
-- **Manage groups** — create, rename and delete groups, and add or remove
-  members by email, directly from the plugin.
-- **Publish a project** as a geoi Feature Service, choosing its **visibility**
-  (private, shared with a group, or public) and whether its features are
-  **editable**.
-- **Save a project** to the platform as a geoi project / "geoi package" —
-  re-opens in the geoi web app and in this plugin. Your map's **symbology**
-  (single / categorized / graduated), **labels**, opacity, outline and layer
-  names are carried over, so it renders the same in the web app.
-- **Publish raster as tiles** — tile your **raster layers** or a **folder of
-  GeoTIFFs** into a single **cloud-native PMTiles** archive (WebP + overviews,
-  transparent where the data doesn't cover a tile) and publish it to geoi. Tiles
-  are **always Web Mercator (EPSG:3857)** — the CRS is fixed, with no override.
-  The finished archive is uploaded **directly to the object store** with a
-  presigned URL (the geoi bearer is never sent off-site), with live **progress
-  and cancel** in the QGIS task manager. Needs **GDAL ≥ 3.8** (bundled with
-  QGIS); the **PMTiles writer is bundled** — it works out of the box, and a
-  native `pmtiles` CLI is used automatically if present (faster).
-- **Publish point clouds as 3D Tiles** — publish **LAS / LAZ / PLY** point
-  clouds as geoi **3D Tiles Services**, choosing per file whether to reproject
-  to WGS 84 or keep the original coordinates (local placement); a dedicated
-  **3D Tiles Services** category in the content browser lets you add a service
-  to the map as a native 3D Tiles layer (QGIS 3.34+), copy its tileset URL, or
-  open it in the **deck.gl** or **Cesium** web preview. Point-cloud tilesets
-  can't be rendered by QGIS's native 3D Tiles viewer (mesh-only), so adding one
-  to the map points you to the web preview instead of a blank layer.
+- **Publish vector layers as a Feature Service.** Pick layers, choose the
+  service's visibility (private, shared with a group, or public) and whether its
+  features are editable, and publish. A per-layer summary (name, symbology,
+  labels, feature count) is shown before anything is sent.
+- **Publish projects — symbology carries over to web rendering.** Save the
+  current project to the platform as a geoi project ("geoi package"): single,
+  categorized and graduated renderers, labels, opacity, outlines and layer
+  names are translated to the geoi style model, so the map renders the same in
+  the web app.
+- **Publish raster as cloud-native tiles.** Tile raster layers or a folder of
+  GeoTIFFs into a single PMTiles archive (WebP with overviews, always Web
+  Mercator / EPSG:3857) and publish it as a Tile Service. The archive uploads
+  directly to object storage via a presigned URL, with live progress and cancel
+  in the QGIS task manager. Requires GDAL 3.8+ (bundled with QGIS); the PMTiles
+  writer is bundled, and a native `pmtiles` CLI is used automatically if present.
+- **Publish point clouds as 3D Tiles.** Publish LAS / LAZ / PLY files as 3D
+  Tiles Services, choosing per file whether to reproject to WGS 84 or keep
+  local coordinates. Add a 3D-Tiles service to the map as a native layer
+  (QGIS 3.34+) or open it in the deck.gl / Cesium web preview.
+- **Browse and add content.** A dockable panel lists your services, web maps,
+  tile services and 3D-Tiles services, organised by your folder hierarchy.
+  Double-click a feature service to add it through QGIS's native ArcGIS Feature
+  Service provider (server-side queries, correct CRS, automatic bearer
+  authentication for private services); tile services are added as WMTS layers
+  or via their XYZ / WMTS / PMTiles URLs.
+- **Edit and save back.** An editable feature service round-trips: toggle
+  editing in QGIS, change geometry or attributes, save — the changes are
+  written back to the platform.
+- **Discover public content.** Switch the panel to Discover mode to live-search
+  the platform's publicly shared content alongside your own.
+- **Organise, share, manage groups.** Rename inline, drag into folders, share
+  with groups or publicly (multi-select to share several items at once), toggle
+  a service editable/read-only, and create or manage groups and their members —
+  all from the panel.
+- **One-click sign-in, zero configuration.** Sign-in reuses your platform's own
+  web sign-in in the system browser (whichever providers the server offers —
+  Google, Apple, Microsoft or ArcGIS) over a loopback handoff. No OAuth client
+  to register, no API key to paste.
 
-## Install
+## Installation
 
-**From the QGIS Plugin Repository** *(recommended)*: in QGIS open
-*Plugins → Manage and Install Plugins…* and search for **“geoi”**.
+**QGIS plugin manager** (recommended): in QGIS open *Plugins → Manage and
+Install Plugins…* and search for **geoi**.
 
-**Manually:** download the latest `geoi.zip` from
-[Releases](https://github.com/geoinformatic/geoi-qgis/releases), or build it
-yourself with `scripts/package.sh`, then use *Plugins → Manage and Install
-Plugins → Install from ZIP*.
+**From ZIP:** download `geoi.zip` from the
+[latest release](https://github.com/geoinformatic/geoi-qgis/releases/latest),
+then *Plugins → Manage and Install Plugins → Install from ZIP*.
 
-After installing, click the **geoi** toolbar button to open the panel.
+**From source:**
+
+```bash
+git clone https://github.com/geoinformatic/geoi-qgis.git
+cd geoi-qgis
+bash scripts/package.sh     # builds dist/geoi.zip
+```
+
+Install the built `dist/geoi.zip` via *Install from ZIP* as above (or copy the
+`geoi/` folder into your QGIS profile's `python/plugins/` directory).
+
+## Quick start
+
+1. Click the **geoi** toolbar button (or *Web → geoi → geoi*) to open the panel.
+2. Click **Sign in** — your browser opens the platform's sign-in page; pick a
+   provider and you are back in QGIS, signed in.
+3. **Double-click** a service in the panel to add it to the map as a native
+   layer.
+4. Click **Publish as Feature Service (vector)** to publish the current layers,
+   or **Save to geoi…** to store the whole project with its symbology.
+5. Open the result on [www.geoi.de](https://www.geoi.de) (or your own server) —
+   it renders the same as in QGIS.
 
 ## Configuration
 
-**None.** Sign-in reuses the platform's existing web sign-in, so there is
-nothing for the platform owner or the user to set up. The only optional setting
-is the **Platform URL** (defaults to `https://geoi.de`) if you run your own geoi
-server.
+There is almost nothing to configure:
 
-## Usage
+- **Server URL** — the panel's **Server settings** button sets the platform URL
+  (defaults to `https://www.geoi.de`). Point it at your own server if you
+  self-host geoi. Set it *before* signing in.
+- **Token** — you never handle one manually. Signing in obtains a 30-day
+  session token, which is stored encrypted in the QGIS authentication database
+  (`QgsAuthManager`) and injected as an `Authorization: Bearer` header — never
+  written into a layer URL or a log message. **Sign out** removes it.
 
-The complete walkthrough — from installing the plugin to every action it offers.
-No configuration is required (see [Configuration](#configuration)).
+## Compatibility
 
-**Before you start.** You need QGIS **3.22 LTR or newer** (it also runs on QGIS
-4.x) and a **geoi account** — on [geoi.de](https://geoi.de) or your own geoi
-server. You sign in with the same account you use for the geoi web app
-(whichever of Google, Apple, Microsoft or ArcGIS your geoi admin enabled); there is
-nothing else to set up.
-
-1. **Open the panel.** After [installing](#install), click the **geoi** button on
-   the toolbar (or open **Web ▸ geoi ▸ geoi**). The dockable **geoi** panel opens
-   on the right. The plugin starts signed-out and idle — nothing opens a browser
-   on QGIS startup.
-
-2. **Sign in.** Click **Sign in**. Your system browser opens the geoi platform's
-   own sign-in page — pick a provider, approve, and you're back in QGIS. The panel
-   then shows your content and the button changes to **Sign out**; the account row
-   shows your **storage usage**. The 30-day session token is stored **encrypted**
-   in the QGIS authentication database, so you stay signed in between sessions (a
-   saved session is re-established silently — no browser, no prompt).
-   *Running a self-hosted server?* Click the **Server settings** button (next to
-   *Sign in*) and set your **Platform URL** before signing in (it defaults to
-   `https://geoi.de`).
-
-3. **Browse your content.** The tree lists **your** services and projects,
-   organised by your folder hierarchy and grouped into **Feature Services**,
-   **Web Maps**, **Tile Services** and **3D-Tiles Services**, with each item's
-   visibility shown. A **Shared with me** section lists Tile Services and
-   3D-Tiles Services a group has shared with you. Expand folders to drill in;
-   click **Refresh** to reload from the platform. Switch to **Discover** mode
-   to live-search geoi's publicly shared content instead of your own.
-
-4. **Add a service to the map.** **Double-click** a service (or select it and
-   click **Add to map**). A **feature service** is added through QGIS's native
-   **ArcGIS Feature Service** provider, in the service's own CRS, and the map
-   zooms to it; a **tile service** is added as a **WMTS** layer, correctly
-   zoomed to its extent; a **3D-Tiles service** is added as a native 3D Tiles
-   layer (QGIS 3.34+); a **web map** opens in the geoi web app. A point-cloud
-   3D-Tiles service can't be rendered by QGIS's native viewer (mesh-only), so
-   it instead points you to the **deck.gl** / **Cesium** web preview. Features
-   are queried server-side — nothing is bulk-downloaded — and private services
-   authenticate automatically.
-
-5. **Edit and save back.** If the service is **editable**, toggle editing in
-   QGIS, change geometry or attributes, and use **Save Layer Edits** — your
-   changes are written back to geoi.
-
-6. **Publish the current map as a service.** Click **Publish as Feature Service
-   (vector)**, pick the layers, name the service, and choose its **visibility**
-   (private, a group, or public) and whether features are **editable**. A
-   per-layer summary (name, symbology, labels, feature count) is shown before you
-   send.
-
-7. **Publish raster as a tile service.** Click **Publish as Tile Service
-   (raster)** to tile your selected **raster layers** or a **folder of GeoTIFFs**
-   into a cloud-native **PMTiles** archive (WebP + overviews, always Web Mercator
-   / EPSG:3857) and publish it to geoi. The archive uploads straight to object
-   storage via a presigned URL — your bearer is never sent off-site — with live
-   **progress** in the task manager and a **Cancel** button that aborts cleanly.
-
-8. **Publish point clouds as 3D Tiles.** Click **Publish as 3D Tiles Service
-   (point cloud)**, pick one or more **LAS / LAZ / PLY** files, and choose per
-   file whether to reproject to **WGS 84** (recommended) or keep the original
-   local coordinates. The first file creates the service; further files are
-   added to the same service.
-
-9. **Save the project to geoi.** Click **Save to geoi…** to store the current
-   project as a geoi project ("geoi package"). Your **symbology** (single /
-   categorized / graduated), **labels**, opacity, outline and layer names are
-   carried over, so it re-opens looking the same in the geoi web app and in this
-   plugin.
-
-10. **Organise, rename, share.** Drag an item onto a folder to move it; press
-    **F2** (or click an already-selected row) to rename inline; **New folder**
-    creates one. Right-click any item — any content type — for **Share…**
-    (visibility and groups; toggle a Feature Service **editable / read-only**),
-    **Move to folder…**, **Copy URL**, **Open in geoi web app**, or **Delete**.
-    Select **multiple items** and share them all at once with a single
-    dialog. Manage your **groups** (create, rename, delete, add/remove members
-    by email) from the panel.
-
-11. **Sign out.** Click **Sign out** to remove the stored token from the QGIS
-    authentication database.
-
-For how sign-in works under the hood and the exact REST calls, see
-[How sign-in works](#how-sign-in-works-zero-config-handoff) and
-[How it talks to geoi](#how-it-talks-to-geoi-no-surprises) below.
-
-## How sign-in works (zero-config handoff)
-
-The plugin is **not** an OAuth client. It opens the platform's hosted handoff
-page `…/desktop-signin.html` in your system browser. Because that page is served
-from the geoi origin, it offers whichever providers your geoi admin enabled —
-**Google, Apple, Microsoft or ArcGIS** (read live from the server; nothing is hardcoded)
-— and reuses the **same** credential exchange the web app uses. The page then
-hands the resulting session token back to the plugin over a **loopback** redirect
-(`http://127.0.0.1:<port>`) — and only a loopback; a `state` nonce ties the
-response to the request. The handoff **never strands you**: if the automatic
-redirect can't reach QGIS, the sign-in page offers a **Return to QGIS** retry and
-a one-time **code you can paste** into QGIS instead.
-
-> This plugin talks to a geoi server but ships **no** server code. The handoff
-> page and the REST API live on your geoi platform.
-
-## How it talks to geoi (no surprises)
-
-All calls go to `<platform>/platform/…`, exactly like the geoi web app:
-
-| Action | Request |
+| | |
 |---|---|
-| Sign in | browser → `…/desktop-signin.html` (reuses the web sign-in: Google / Apple / Microsoft / ArcGIS) → 30-day bearer via loopback |
-| Browse | `GET /hub/services`, `/hub/projects`, `/hub/folders`, `/hub/groups` |
-| Discover | `GET /hub/discover?…` (public content search, no sign-in required) |
-| Add service | `…/rest/services/<name>/FeatureServer` via the ArcGIS provider |
-| Publish | `POST /hub/services` (multipart GeoJSON), then visibility / editable + group share |
-| Editable toggle | `POST /hub/services/<name> {editable}` |
-| Share / unshare | `POST` / `DELETE /hub/services/<name>/shares[/<groupId>]` (and the `/raster/services/…` and `/tiles3d/services/…` equivalents for Tile and 3D-Tiles services) |
-| Groups | `GET /hub/groups` · `POST /hub/groups` · `POST` / `DELETE /hub/groups/<id>/members[/<uid>]` |
-| Save project | `POST /hub/projects {name, data}` |
-| Publish raster | `POST /raster/presign {name, bytes}` → `PUT <presigned object-store URL>` (no bearer) → `POST /raster/confirm {objectKey, bytes, bounds}` |
-| Publish 3D Tiles | `POST /tiles3d/create` (multipart tileset ZIP, or an encoded point-cloud tileset) |
-| Move | `POST /hub/services/<name> {folderId}` · `POST /hub/projects/<id> {folderId}` |
-| Folders | `POST /hub/folders` · `POST /hub/folders/<id>` · `DELETE /hub/folders/<id>` |
-| Delete | `DELETE /hub/services/<name>` · `DELETE /hub/projects/<id>` |
+| QGIS | 3.22 LTR through 4.x (`qgisMinimumVersion=3.22`, `qgisMaximumVersion=4.99`), Qt5 and Qt6 |
+| Python dependencies | none beyond the standard library and the QGIS API |
+| Raster tiling | GDAL 3.8+ (bundled with QGIS) |
+| Native 3D-Tiles layers | QGIS 3.34+ (older versions are pointed to the web preview) |
 
-The Feature Service REST surface is locked by the platform's spec-conformance
-gate, so it won't silently change under the plugin.
-
-## Security
-
-- Sign-in uses the **system browser** (not an embedded webview); each provider's
-  sign-in happens on its real domain (Google / Apple / Microsoft / ArcGIS) via the
-  platform's existing web flow.
-- The handoff page **only** redirects to a validated `http://127.0.0.1:<port>`
-  loopback — never to a free-form URL — and a `state` nonce prevents any other
-  local process from injecting a token.
-- Tokens live in the encrypted QGIS auth DB; the bearer is injected as a request
-  header for layers (never placed in a layer URL or logged). Raster archives
-  upload directly to object storage with a presigned URL, so the bearer is never
-  sent off-site.
-- TLS is verified; no client ids or secrets are shipped in the plugin.
-
-To report a vulnerability, see [SECURITY.md](SECURITY.md).
-
-## Develop
+## Development
 
 ```bash
-# unit tests (pure modules — no QGIS needed)
+git clone https://github.com/geoinformatic/geoi-qgis.git
+cd geoi-qgis
+
+# unit tests — pure modules, no QGIS install needed
 python3 -m unittest discover -s tests -p 'test_*.py'
 
-# editing round-trip: headless QGIS <-> a live platform (needs php + qgis python)
+# lint
+flake8 --max-line-length=100 --extend-ignore=E203,W503 geoi tests
+
+# security scan (plugins.qgis.org runs the same gate on upload)
+bandit -r geoi
+
+# editing round-trip against a live local platform (needs php + a QGIS python)
 bash tests/e2e/run.sh
 
 # build the installable zip
-scripts/package.sh        # → dist/geoi.zip
+bash scripts/package.sh     # -> dist/geoi.zip
 ```
 
-The pure modules (`geoi_client.py`, `convert.py`, `auth.py`, `content_tree.py`,
-`raster.py`, `style.py`, `pointcloud.py`, `tiles3d.py`, `tiles3d_encoder.py`)
-import nothing from QGIS and carry the testable logic; QGIS is imported lazily
-inside the GUI / adapter code so the package imports cleanly in CI. The
-bundled PMTiles writer lives under `geoi/_vendor/pmtiles/` (third-party,
-shipped verbatim — excluded from our lint).
+The pure-logic modules import nothing from QGIS, so the unit tests run on any
+Python 3. CI additionally imports the plugin under QGIS 3.28 / 3.34 / latest
+(Qt5 and Qt6), verifies the PyQGIS API the plugin relies on, and runs the tests
+under the QGIS Python — see `.github/workflows/ci.yml`.
 
-CI also imports the plugin under QGIS 3.28 / 3.34 / latest (Qt5 and Qt6),
-verifies the PyQGIS API the plugin relies on, exercises the publish/save
-conversion against a real in-memory layer, and runs the unit tests under the
-QGIS Python. The editing round-trip (`tests/e2e/`) is runnable locally with
-`bash tests/e2e/run.sh` (needs `php` and the QGIS Python).
+### Project layout
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and our
-[Code of Conduct](CODE_OF_CONDUCT.md).
+| Path | Contents |
+|---|---|
+| `geoi/` | The plugin package (`metadata.txt`, `plugin.py` entry point) |
+| `geoi/gui/` | Dock panel and dialogs (the only QGIS/Qt-touching UI code) |
+| `geoi/geoi_client.py`, `auth.py`, `convert.py`, `content_tree.py`, `style.py`, `raster.py`, `pointcloud.py`, `tiles3d.py`, `tiles3d_encoder.py` | Pure logic — no QGIS imports, unit-tested |
+| `geoi/_vendor/pmtiles/` | Vendored PMTiles writer (third-party, BSD-3-Clause) |
+| `tests/` | Unit tests for the pure modules |
+| `tests/e2e/` | Headless-QGIS editing round-trip against a local platform |
+| `scripts/` | `package.sh` (build the zip), `verify-release-urls.sh` |
+| `docs/` | plugins.qgis.org listing copy, screenshots |
+| `.github/workflows/` | CI, release, plugins.qgis.org publishing |
 
-## About geoi
+## Contributing
 
-geoi is a mobile-first WebGIS platform for capturing, sharing and publishing
-geodata — in the browser, on your phone, and (with this plugin) right inside
-QGIS. If you don't have an account yet, you're welcome to take a look and try it
-out at **[geoi.de](https://geoi.de)**. You can also point the plugin at your own
-geoi server.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the
+ground rules (no third-party dependencies, QGIS 3 and 4 support, lazy QGIS
+imports) and the PR conventions, and our
+[Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability privately,
+see [SECURITY.md](SECURITY.md).
 
 ## License
 
-[GNU Affero General Public License v3.0](LICENSE) © geoinformatic. "geoi" is a
-product name and trademark of geoinformatic; the AGPL-3.0 grant covers the
-source code, not the name or logo. The bundled PMTiles writer
-(`geoi/_vendor/pmtiles/`) is third-party code under the BSD-3-Clause licence —
-see [NOTICE](NOTICE).
+[AGPL-3.0](LICENSE) — you may use, modify and redistribute the plugin freely,
+but if you distribute a modified version or run one as part of a network
+service, you must make its source available under the same license. "geoi" is a
+product name and trademark of geoinformatic; the license covers the source
+code, not the name or logo. The bundled PMTiles writer
+(`geoi/_vendor/pmtiles/`) is third-party code under BSD-3-Clause — see
+[NOTICE](NOTICE).
+
+## Links
+
+- geoi web platform: [github.com/geoinformatic/geoi](https://github.com/geoinformatic/geoi)
+- geoi hosted service: [www.geoi.de](https://www.geoi.de)
+- Issue tracker: [github.com/geoinformatic/geoi-qgis/issues](https://github.com/geoinformatic/geoi-qgis/issues)

@@ -2,7 +2,13 @@
 
 ## Supported versions
 
-The latest released version of the plugin receives security fixes.
+Security fixes are released for the latest minor release line only; please
+upgrade before reporting.
+
+| Version | Supported |
+|---------|-----------|
+| 1.7.x   | yes       |
+| < 1.7   | no        |
 
 ## Reporting a vulnerability
 
@@ -19,8 +25,9 @@ before any public disclosure.
 
 ## Design notes
 
-- Sign-in uses the **system browser**, not an embedded webview; Google sign-in
-  happens on Google's real domain via the platform's existing web client.
+- Sign-in uses the **system browser**, not an embedded webview; each provider's
+  sign-in (Google, Apple, Microsoft, ArcGIS) happens on its real domain via the
+  platform's existing web flow.
 - The token handoff only ever redirects to a validated
   `http://127.0.0.1:<port>` loopback, guarded by a `state` nonce.
 - Session tokens are stored **encrypted** in the QGIS authentication database

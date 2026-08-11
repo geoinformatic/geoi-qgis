@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.7.2 — maintenance
+
+- No functional changes for users. Fixes a test file that failed to import in
+  this repository's own CI.
+
+## 1.7.1 — maintenance
+
+- No functional changes for users. Fixes the repository's test suite so
+  releases publish and verify cleanly.
+
+## 1.7.0 — private Discover, base maps, extent fix
+
+- **Discover shows no personal data.** A discovered item no longer shows any
+  owner name or email address — it is labelled only with its publication date.
+- **Discover lists everything immediately.** All content categories (Feature
+  Services / Web Maps / Tile Services / 3D Tiles) appear as soon as you switch
+  to Discover mode, not only after you start typing; the search box filters
+  what is shown. Public-content search is faster.
+- **Fixed feature-service zoom extent.** Adding a Feature Service no longer
+  zooms the map out to the whole world instead of the data's real extent.
+- **Base maps** can now be browsed and added to the map from the content
+  browser.
+
 ## 1.6.0 — Discover mode, groups & sharing, point-cloud 3D Tiles, unified content menus
 
 This release brings the work matured across the upstream `1.2.0`–`1.6.0`
