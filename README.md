@@ -27,7 +27,7 @@ through QGIS 4.x, Qt5 and Qt6.
 
 | The geoi panel in QGIS | The published result in the web app |
 |---|---|
-| ![The dockable geoi content browser in QGIS, showing folders, feature services, web maps, tile services and 3D-Tiles services](docs/screenshots/plugin-panel.png) | ![A project published from QGIS rendered in the geoi web app, with symbology and labels carried over](docs/screenshots/web-published-result.png) |
+| ![The dockable geoi content browser panel (signed-out default state)](docs/screenshots/plugin-panel.png) | ![The geoi web workspace the plugin publishes to — map view with layer list, capture and measure tools](docs/screenshots/web-workspace.jpg) |
 
 ## Features
 
