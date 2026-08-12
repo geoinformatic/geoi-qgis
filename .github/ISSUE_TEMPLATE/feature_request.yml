@@ -12,3 +12,8 @@ body:
     id: proposal
     attributes:
       label: Proposed solution
+  - type: input
+    id: environment
+    attributes:
+      label: Environment (if relevant)
+      placeholder: e.g. QGIS 3.34.5, plugin 1.7.2, Windows 11

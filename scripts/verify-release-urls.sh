@@ -18,9 +18,9 @@
 #
 set -euo pipefail
 
-# The public-repo URLs (kept in lock-step with tools/rewrite_public_metadata.py).
+# The release URLs (kept in lock-step with geoi/metadata.txt).
 default_urls=(
-  "https://github.com/geoinformatic/geoi-qgis#usage"
+  "https://www.geoi.de"
   "https://github.com/geoinformatic/geoi-qgis/issues"
   "https://github.com/geoinformatic/geoi-qgis"
 )

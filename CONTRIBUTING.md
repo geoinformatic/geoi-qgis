@@ -42,11 +42,21 @@ fail-soft `try/except/pass`) must carry an inline `# nosec <ID>` with a short
 ## Pull requests
 
 1. Fork and create a topic branch.
-2. Add or update tests for your change.
-3. Make sure `flake8` and the unit tests pass locally.
-4. Update `CHANGELOG.md` and bump `version` in `geoi/metadata.txt` if your
-   change is user-visible.
-5. Open a PR with a clear description of the problem and the fix.
+2. **One concern per PR.** Keep unrelated fixes, refactors and features in
+   separate pull requests — small, focused PRs are reviewed and merged much
+   faster.
+3. **Use [Conventional Commits](https://www.conventionalcommits.org/)** for
+   commit messages and the PR title: `feat: …`, `fix: …`, `docs: …`, `ci: …`,
+   `test: …`, `refactor: …`.
+4. Add or update tests for your change.
+5. Make sure `flake8`, `bandit` and the unit tests pass locally (CI runs the
+   same commands, see above).
+6. Update `CHANGELOG.md` and bump `version` in `geoi/metadata.txt` if your
+   change is user-visible. Note that merging a version bump to `main` cuts a
+   release automatically (see `.github/workflows/release.yml`) — maintainers
+   handle the bump if you'd rather leave it out.
+7. Open the PR with a clear description of the problem and the fix, linking
+   any related issue.
 
 By contributing you agree that your contributions are licensed under the
 project's [AGPL-3.0](LICENSE) license.

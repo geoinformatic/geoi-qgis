@@ -48,19 +48,16 @@ Changes from the previous (`1.1.0`) listing: **added** `3d tiles`,
 
 ## Links
 
-- **Plugin homepage:** <https://github.com/geoinformatic/geoi-qgis#usage>
+- **Plugin homepage:** <https://www.geoi.de>
 - **Tracker:** <https://github.com/geoinformatic/geoi-qgis/issues>
 - **Code repository:** <https://github.com/geoinformatic/geoi-qgis>
 
-> **Always point these at `geoi-qgis`, never at the upstream `geoi` repo.**
-> Vendor drops from the upstream `geoi` project ship a `metadata.txt` whose
-> `homepage` / `tracker` / `repository` point at `github.com/geoinformatic/geoi`
-> — a different (not publicly reachable) repository. Uploading that metadata
-> as-is fails plugins.qgis.org's pre-upload check with *"Please provide valid
-> url link for the following key(s) in the metadata source: tracker,
-> repository. The website(s) cannot be reached within 10 seconds."* Every
-> vendor-drop merge into `geoi-qgis` must rewrite these three fields back to
-> the `geoi-qgis` URLs above before packaging/uploading.
+> **All three URLs must be publicly reachable**, and `tracker` / `repository`
+> must point at `geoi-qgis`. plugins.qgis.org's pre-upload check rejects
+> unreachable URLs with *"Please provide valid url link for the following
+> key(s) in the metadata source: tracker, repository. The website(s) cannot be
+> reached within 10 seconds."* Verify them with
+> `scripts/verify-release-urls.sh` before uploading.
 
 ## Flags
 
